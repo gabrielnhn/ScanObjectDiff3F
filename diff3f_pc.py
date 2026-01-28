@@ -11,6 +11,7 @@ from tqdm import tqdm
 from time import time
 import random
 import gc 
+import cv2
 
 FEATURE_DIMS = 1280 + 768  # diffusion unet + dino
 VERTEX_GPU_LIMIT = 35000
@@ -126,6 +127,12 @@ def get_features_per_point(
         # 2. Prepare inputs for Diffusion
         img_rgb = batched_renderings[idx, :, :, :3]
         diffusion_input_img = (img_rgb.cpu().numpy() * 255).astype(np.uint8)
+        
+        
+        cv2.imshow("RENDER", diffusion_input_img)
+        cv2.waitKey(8000)
+        
+        
         
         normal_map_input = None
         if use_normal_map and normal_batched_renderings is not None:

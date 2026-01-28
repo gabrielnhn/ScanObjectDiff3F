@@ -17,6 +17,8 @@ def load_pc_file_with_colours(filename, suncg = False, with_bg = True):
     colours = np.array(pc[:,6:9])
     return positions, colours
 
+# SOURCE_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
+# TARGET_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0271_00_00019.bin" 
 
 TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
 pc, colours = load_pc_file_with_colours(TEST_FILE)
