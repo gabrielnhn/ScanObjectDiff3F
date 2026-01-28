@@ -1,0 +1,6 @@
+[submodule "scanobjectnn"]
+	path = scanobjectnn
+	url = git@github.com:hkust-vgd/scanobjectnn.git
+[submodule "Diffusion-3D-Features"]
+	path = Diffusion-3D-Features
+	url = git@github.com:niladridutt/Diffusion-3D-Features.git
