@@ -1,1 +1,4 @@
 *.ply
+*.html
+__pycache__
+.vscode
