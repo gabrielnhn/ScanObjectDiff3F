@@ -1,4 +1,5 @@
 import numpy as np
+import data_utils
 
 def load_pc_file_with_colours(filename, suncg = False, with_bg = True):
     #load bin file
@@ -16,26 +17,10 @@ def load_pc_file_with_colours(filename, suncg = False, with_bg = True):
     colours = np.array(pc[:,6:9])
     return positions, colours
 
-# import SurfaceAware3DFeaturesCode
-# import scanobjectnn
-# from scanobjectnn import data_utils
-import data_utils
-
-
-
-# TEST_FILE = "/home/gabrielnhn/diffscan/scanobjectnn/h5_files/main_split/test_objectdataset.h5"
-# TEST_DATA, TEST_LABELS = data_utils.load_h5(TEST_FILE)
-# pc = TEST_DATA[0]
-# print(TEST_LABELS[0])
-
 
 TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
-
-
 pc, colours = load_pc_file_with_colours(TEST_FILE)
-
 data_utils.save_ply(pc, "./test.ply", colors=colours)
-
 
 import trimesh
 pc = trimesh.load("./test.ply")

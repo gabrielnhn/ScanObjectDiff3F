@@ -2,13 +2,13 @@
 Simple correspondence workflow from ipynb file
 """
 import sys
-sys.path.append("./diff3f/")
+sys.path.append("./Diff3F/")
 # import packages
 
 
 import torch
-from diff3f2 import get_features_per_vertex
-from utils2 import convert_mesh_container_to_torch_mesh, cosine_similarity, double_plot, get_colors, generate_colors
+from diff3f_implementation import get_features_per_vertex
+from utils import convert_mesh_container_to_torch_mesh, cosine_similarity, double_plot, get_colors, generate_colors
 from time import time
 from dataloaders.mesh_container import MeshContainer
 from diffusion import init_pipe
@@ -51,8 +51,8 @@ def compute_features(device, pipe, dino_model, m, prompt):
 pipe = init_pipe(device)
 dino_model = init_dino(device)
 
-source_file_path = "diff3f/meshes/cow.obj"
-target_file_path = "diff3f/meshes/camel.obj"
+source_file_path = "Diff3F/meshes/cow.obj"
+target_file_path = "Diff3F/meshes/camel.obj"
 source_mesh = MeshContainer().load_from_file(source_file_path)
 target_mesh = MeshContainer().load_from_file(target_file_path)
 
