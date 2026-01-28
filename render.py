@@ -6,7 +6,6 @@ from pytorch3d.renderer.lighting import PointLights
 from normal_shading import HardPhongNormalShader
 import torch
 import math
-import time
 
 
 @torch.no_grad()

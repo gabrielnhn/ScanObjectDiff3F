@@ -1,74 +1,20 @@
 from pytorch3d.renderer.cameras import look_at_view_transform, PerspectiveCameras
-import torch
-import math
-import numpy as np
-from pytorch3d.structures import Pointclouds
 from pytorch3d.renderer import (
-    look_at_view_transform,
     PointsRasterizationSettings,
     PointsRenderer,
     PointsRasterizer,
     AlphaCompositor)
-
-def load_pc_file_with_colours(filename, suncg = False, with_bg = True):
-    #load bin file
-    pc=np.fromfile(filename, dtype=np.float32)
-    # pc=np.fromfile(os.path.join(DATA_PATH, filename), dtype=np.float32)
-
-    #first entry is the number of points
-    #then x, y, z, nx, ny, nz, r, g, b, label, nyu_label
-    if(suncg):
-        pc = pc[1:].reshape((-1,3))
-    else:
-        pc = pc[1:].reshape((-1,11))
-
-    positions = np.array(pc[:,0:3])
-    colours = np.array(pc[:,6:9])
-    return positions, colours
+import torch
+import math
+import numpy as np
+from pytorch3d.structures import Pointclouds
 
 
-def load_scanobjectnn_to_pytorch3d(filename, device):
-    positions_np, colours_np = load_pc_file_with_colours(filename)
-
-    if colours_np.max() > 1.0:
-        colours_np = colours_np / 255.0
-
-    points_tensor = torch.from_numpy(positions_np).float().to(device)
-    features_tensor = torch.from_numpy(colours_np).float().to(device)
-
-    pcd = Pointclouds(points=[points_tensor], features=[features_tensor])
-    
-    return pcd
-
-
-def get_colored_depth_maps(raw_depths,H,W):
-    import matplotlib
-    import matplotlib.cm as cm
-    cmap = cm.get_cmap('Greys')
-    norm = matplotlib.colors.Normalize(vmin=0.0, vmax=1.0, clip=True)
-    mapper = cm.ScalarMappable(norm=norm, cmap=cmap)
-    depth_images = []
-    for i in range(raw_depths.size()[0]):
-        d = raw_depths[i]
-        dmax = torch.max(d) ; dmin = torch.min(d)
-        d = (d-dmin)/(dmax-dmin)
-        flat_d = d.view(1,-1).cpu().detach().numpy()
-        flat_colors = mapper.to_rgba(flat_d)
-        depth_colors = np.reshape(flat_colors,(H,W,4))[:,:,:3]
-        np_image = depth_colors*255
-        np_image = np_image.astype('uint8')
-        depth_images.append(np_image)
-
-    return depth_images
-
-
+# --- 2. The Multi-Pass Renderer ---
 @torch.no_grad()
-def run_rendering(device, points, num_views, H, W, add_angle_azi=0, add_angle_ele=0, use_normal_map=False,return_images=False):
-    # FIX 1: Use .to(device) instead of hardcoded .cuda() for safety
-    # FIX 2: Create features using ones_like to match input tensor properties
-    pointclouds = Pointclouds(points=[points], features=[torch.ones_like(points).float().to(device)])
+def run_rendering(device, pcd, num_views, H, W, add_angle_azi=0, add_angle_ele=0, use_normal_map=False, render_white=False):
     
-    bbox = pointclouds.get_bounding_boxes()
+    bbox = pcd.get_bounding_boxes()
     bbox_min = bbox.min(dim=-1).values[0]
     bbox_max = bbox.max(dim=-1).values[0]
     bb_diff = bbox_max - bbox_min
@@ -77,62 +23,90 @@ def run_rendering(device, points, num_views, H, W, add_angle_azi=0, add_angle_el
     distance = torch.sqrt((bb_diff * bb_diff).sum())
     distance *= scaling_factor
     
-    # FIX 3: Safety check for steps
+    # Grid logic
     steps = int(math.sqrt(num_views))
     if steps < 1: steps = 1
         
     end = 360 - 360/steps
-    elevation = torch.linspace(start = 0 , end = end , steps = steps).repeat(steps) + add_angle_ele
-    azimuth = torch.linspace(start = 0 , end = end , steps = steps)
+    elevation = torch.linspace(start=0, end=end, steps=steps).repeat(steps) + add_angle_ele
+    azimuth = torch.linspace(start=0, end=end, steps=steps)
     azimuth = torch.repeat_interleave(azimuth, steps) + add_angle_azi
     bbox_center = bbox_center.unsqueeze(0)
+    
     rotation, translation = look_at_view_transform(
         dist=distance, azim=azimuth, elev=elevation, device=device, at=bbox_center
     )
     camera = PerspectiveCameras(R=rotation, T=translation, device=device)
 
-    #rasterizer
+    # Settings: High radius/points_per_pixel helps make the PC look "solid" for Diff3F
     rasterization_settings = PointsRasterizationSettings(
-        image_size=H,
-        radius = 0.01,
-        points_per_pixel = 1,
-        bin_size = 0,
-        max_points_per_bin = 0
+        image_size=(H, W),
+        radius=0.015, 
+        points_per_pixel=10, 
+        bin_size=0
     )
 
-    #render pipeline
     rasterizer = PointsRasterizer(cameras=camera, raster_settings=rasterization_settings)
-    camera_centre = camera.get_camera_center()
-    batch_renderer = PointsRenderer(
-        rasterizer=rasterizer,
-        compositor=AlphaCompositor()
-    )
+    renderer = PointsRenderer(rasterizer=rasterizer, compositor=AlphaCompositor())
     
-    # FIX 4: Use actual view count derived from rotation matrix
     actual_views = rotation.shape[0]
-    batch_points = pointclouds.extend(actual_views)
     
-    fragments = rasterizer(batch_points)
-    raw_depth = fragments.zbuf
-
-    if not return_images:
-        return None,None,camera,raw_depth
+    # --- PASS 1: RGB (or White) ---
+    if render_white:
+        # Create a temp PC with white features
+        white_feats = torch.ones_like(pcd.points_padded())
+        pcd_render = Pointclouds(points=pcd.points_padded(), features=white_feats).to(device)
     else:
-        list_depth_images_np = get_colored_depth_maps(raw_depth,H,W)
-        return None,None,camera,raw_depth,list_depth_images_np
+        # Use existing RGB features
+        pcd_render = pcd
+        
+    batch_pcd = pcd_render.extend(actual_views)
+    batched_renderings = renderer(batch_pcd) # (N, H, W, 4)
+
+    # --- PASS 2: Normals ---
+    normal_batched_renderings = None
+    if use_normal_map:
+        if pcd.normals_padded() is None:
+            print("Warning: use_normal_map=True but Point Cloud has no normals!")
+        else:
+            # 1. Get Normals
+            # 2. Map [-1, 1] -> [0, 1] for image representation
+            normals_as_color = (pcd.normals_padded() + 1.0) / 2.0
+            
+            # 3. Create temp PC where features = normals
+            pcd_normals = Pointclouds(points=pcd.points_padded(), features=normals_as_color).to(device)
+            batch_pcd_normals = pcd_normals.extend(actual_views)
+            
+            # 4. Render
+            normal_batched_renderings = renderer(batch_pcd_normals) # (N, H, W, 4)
+
+    # Get Depth (from the first pass)
+    fragments = rasterizer(batch_pcd)
+    depth = fragments.zbuf
+    
+    return batched_renderings, normal_batched_renderings, camera, depth
 
 
-def batch_render(device, points, num_views, H, W, use_normal_map=False,return_images=False):
+def batch_render(device, pcd, num_views, H, W, use_normal_map=False):
     trials = 0
     add_angle_azi = 0
     add_angle_ele = 0
+    # DECISION: Set render_white=True if you want "clay" generation. 
+    # Set False to use scan colors.
+    render_white = False 
+    
     while trials < 5:
         try:
-            return run_rendering(device, points, num_views, H, W, add_angle_azi=add_angle_azi, add_angle_ele=add_angle_ele, use_normal_map=use_normal_map,return_images=return_images)
+            return run_rendering(
+                device, pcd, num_views, H, W, 
+                add_angle_azi=add_angle_azi, 
+                add_angle_ele=add_angle_ele, 
+                use_normal_map=use_normal_map,
+                render_white=render_white
+            )
         except torch.linalg.LinAlgError as e:
             trials += 1
             print("lin alg exception at rendering, retrying ", trials)
             add_angle_azi = torch.randn(1)
             add_angle_ele = torch.randn(1)
             continue
-        
