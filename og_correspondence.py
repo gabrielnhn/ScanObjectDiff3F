@@ -7,7 +7,7 @@ sys.path.append("./Diff3F/")
 
 
 import torch
-from diff3f_implementation import get_features_per_vertex
+from diff3f_mesh import get_features_per_vertex
 from utils import convert_mesh_container_to_torch_mesh, cosine_similarity, double_plot, get_colors, generate_colors
 from time import time
 from dataloaders.mesh_container import MeshContainer
