@@ -14,13 +14,21 @@ def load_pc_file_with_colours(filename, suncg = False, with_bg = True):
         pc = pc[1:].reshape((-1,11))
 
     positions = np.array(pc[:,0:3])
-    colours = np.array(pc[:,6:9])
+    colours = np.array(pc[:,6:9])/ 255
+    # colours = np.array(pc[:,3:6])
     return positions, colours
 
-# SOURCE_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
-# TARGET_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0271_00_00019.bin" 
-
 TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0271_00_00019.bin" 
+
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sink/065_00014.bin"
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sink/207_00007.bin"
+
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/014_00006.bin"
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/toilet/scene0581_00_00009.bin"
+
+
 pc, colours = load_pc_file_with_colours(TEST_FILE)
 data_utils.save_ply(pc, "./test.ply", colors=colours)
 

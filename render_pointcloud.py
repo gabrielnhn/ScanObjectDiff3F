@@ -42,7 +42,7 @@ def run_rendering(device, pcd, num_views, H, W, add_angle_azi=0, add_angle_ele=0
     rasterization_settings = PointsRasterizationSettings(
         image_size=(H, W),
         radius=0.015, 
-        points_per_pixel=10, 
+        points_per_pixel=1, 
         bin_size=0
     )
 
@@ -91,9 +91,9 @@ def batch_render(device, pcd, num_views, H, W, use_normal_map=False):
     trials = 0
     add_angle_azi = 0
     add_angle_ele = 0
-    # DECISION: Set render_white=True if you want "clay" generation. 
-    # Set False to use scan colors.
+    
     render_white = False 
+    render_white = True 
     
     while trials < 5:
         try:

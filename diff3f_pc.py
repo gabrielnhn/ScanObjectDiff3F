@@ -129,8 +129,8 @@ def get_features_per_point(
         diffusion_input_img = (img_rgb.cpu().numpy() * 255).astype(np.uint8)
         
         
-        cv2.imshow("RENDER", diffusion_input_img)
-        cv2.waitKey(8000)
+        # cv2.imshow("RENDER", diffusion_input_img)
+        # cv2.waitKey(8000)
         
         
         

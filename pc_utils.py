@@ -18,7 +18,7 @@ def load_pc_file_with_colours(filename, suncg=False):
         pc = pc[1:].reshape((-1, 11))
         positions = np.array(pc[:, 0:3])
         normals = np.array(pc[:, 3:6]) # Capture Normals
-        colours = np.array(pc[:, 6:9])
+        colours = np.array(pc[:, 6:9])/255
         return positions, colours, normals
 
 
