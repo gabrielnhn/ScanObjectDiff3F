@@ -5,7 +5,8 @@ import torch
 import numpy as np
 import trimesh
 
-from diff3f_pc import get_features_per_point
+# from diff3f_pc import get_features_per_point
+from diff3f_depthonly import get_features_per_point
 from pc_utils import load_scanobjectnn_to_pytorch3d 
 from utils import cosine_similarity, get_colors
 from diffusion import init_pipe

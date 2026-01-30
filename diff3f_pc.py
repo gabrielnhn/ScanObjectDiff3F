@@ -107,8 +107,6 @@ def get_features_per_point(
     
     print("Extracting features from views...")
     for idx in tqdm(range(len(batched_renderings))):
-        # --- FIX: SELECT CLOSEST POINT (Index 0) ---
-        # depth shape is (H, W, K), we take the 0th index to match pixel_coords (H, W)
         current_depth_map = depth[idx, :, :, 0]
         
         dp = current_depth_map.flatten().unsqueeze(1)
@@ -124,13 +122,12 @@ def get_features_per_point(
             )
         ).to(device)
 
-        # 2. Prepare inputs for Diffusion
         img_rgb = batched_renderings[idx, :, :, :3]
         diffusion_input_img = (img_rgb.cpu().numpy() * 255).astype(np.uint8)
         
         
         # cv2.imshow("RENDER", diffusion_input_img)
-        # cv2.waitKey(8000)
+        # cv2.waitKey(800)
         
         
         
@@ -140,11 +137,12 @@ def get_features_per_point(
             
         # We reuse the sliced depth map we created earlier
         depth_map = current_depth_map.unsqueeze(0).to(device)
+        # cv2.imshow("DEPTH", depth_map)
+        # cv2.waitKey(800)
         
         if prompts_list is not None:
             prompt = random.choice(prompts_list)
             
-        # 3. Run Diffusion / DINO
         diffusion_output = add_texture_to_render(
             pipe,
             diffusion_input_img,
@@ -156,7 +154,6 @@ def get_features_per_point(
             return_image=return_image
         )
         
-        # 4. Feature Extraction & Alignment
         aligned_dino_features = get_dino_features(device, dino_model, diffusion_output[1][0], grid)
         
         with torch.no_grad():
@@ -170,12 +167,11 @@ def get_features_per_point(
         aligned_features = torch.hstack([aligned_features*0.5, aligned_dino_features*0.5])
         features_per_pixel = aligned_features[0, :, indices].cpu()
         
-        # 5. Map features back to 3D Points
         if bq:
             queried_indices = (
                 ball_query(
                     world_coords.unsqueeze(0),
-                    points.unsqueeze(0), # Original points (on GPU)
+                    points.unsqueeze(0),
                     K=100,
                     radius=ball_drop_radius,
                     return_nn=False,

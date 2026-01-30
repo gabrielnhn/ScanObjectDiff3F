@@ -25,9 +25,13 @@ def load_pc_file_with_colours(filename, suncg=False):
 def load_scanobjectnn_to_pytorch3d(filename, device):
     positions_np, colours_np, normals_np = load_pc_file_with_colours(filename)
 
-    # Normalize colors to [0, 1]
-    if colours_np is not None and colours_np.max() > 1.0:
-        colours_np = colours_np / 255.0
+    # if colours_np is not None and colours_np.max() > 1.0:
+    #     colours_np = colours_np / 255.0
+
+    # if colours_np is not None and colours_np.max() < 2:
+    # colours_np = colours_np / 255
+
+
 
     points_tensor = torch.from_numpy(positions_np).float().to(device)
     

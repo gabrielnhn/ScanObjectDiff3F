@@ -59,25 +59,22 @@ def run_rendering(device, pcd, num_views, H, W, add_angle_azi=0, add_angle_ele=0
     else:
         # Use existing RGB features
         pcd_render = pcd
+        # pcd_render = Pointclouds(points=pcd.points_padded(), features=pcd.features_padded()).to(device)
+        
         
     batch_pcd = pcd_render.extend(actual_views)
     batched_renderings = renderer(batch_pcd) # (N, H, W, 4)
 
-    # --- PASS 2: Normals ---
     normal_batched_renderings = None
     if use_normal_map:
         if pcd.normals_padded() is None:
             print("Warning: use_normal_map=True but Point Cloud has no normals!")
         else:
-            # 1. Get Normals
-            # 2. Map [-1, 1] -> [0, 1] for image representation
             normals_as_color = (pcd.normals_padded() + 1.0) / 2.0
             
-            # 3. Create temp PC where features = normals
             pcd_normals = Pointclouds(points=pcd.points_padded(), features=normals_as_color).to(device)
             batch_pcd_normals = pcd_normals.extend(actual_views)
             
-            # 4. Render
             normal_batched_renderings = renderer(batch_pcd_normals) # (N, H, W, 4)
 
     # Get Depth (from the first pass)
@@ -93,7 +90,7 @@ def batch_render(device, pcd, num_views, H, W, use_normal_map=False):
     add_angle_ele = 0
     
     render_white = False 
-    render_white = True 
+    # render_white = True 
     
     while trials < 5:
         try:
