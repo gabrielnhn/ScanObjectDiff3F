@@ -19,7 +19,8 @@ device = torch.device('cuda:0')
 torch.cuda.set_device(device)
 
 # num_views = 20
-num_views = 100
+# num_views = 100
+num_views = 1
 H = 512
 W = 512
 num_images_per_prompt = 1
@@ -39,7 +40,7 @@ def compute_pc_features(device, pipe, dino_model, pcd, prompt):
         tolerance=tolerance,
         num_images_per_prompt=num_images_per_prompt,
         use_normal_map=use_normal_map,
-    ).cpu()
+    )# .cpu()
     return features
 
 def save_ply_with_colors(points, colors, filename):
@@ -77,8 +78,8 @@ sim_matrix = cosine_similarity(f_first.to(device), f_second.to(device))
 
 s = torch.argmax(sim_matrix, dim=0).cpu().numpy()
 
-first_points_np = first_pcd.points_padded()[0].cpu().numpy()
-second_points_np = second_pcd.points_padded()[0].cpu().numpy()
+first_points_np = first_pcd.points_padded()#[0].cpu().numpy()
+second_points_np = second_pcd.points_padded()#[0].cpu().numpy()
 
 # first_colors_np = first_pcd.features_padded()[0].cpu().numpy()
 # first_colors_np = get_colors(first_points_np) 

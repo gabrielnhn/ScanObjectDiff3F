@@ -3,6 +3,8 @@ import torch
 from pytorch3d.structures import Pointclouds
 from pytorch3d.io import IO
 
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
 def load_pc_file_with_colours(filename):
     # Load bin file
     pc = np.fromfile(filename, dtype=np.float32)
@@ -66,15 +68,25 @@ def load_scanobjectnn_to_pytorch3d(filename, device):
         normals=[normals_tensor] if normals_tensor is not None else None
     )
     
-    return pcd, labels
+    return pcd, labels_np
 
 
 def save_pointcloud_with_features(pcd, features, filename):
-    pcd_copy = Pointclouds(points=pcd.points_padded(), features=features)
+    # print("FEATURES UNSQUEEZE SHAPE", features.unsqueeze(0).shape)
+    points = pcd.points_padded().to(device)
+    # features = features.unsqueeze(0).to(device)
+    pcd_copy = Pointclouds(points=points
+                        #    , features=features
+                           )
     
     if not filename.endswith(".ply"):
         filename = filename.split(".")[0]
         filename = filename + ".ply"
         
-    IO.save_pointcloud(pcd_copy, filename)
+    IO().save_pointcloud(data=pcd_copy, path=filename)
+    if not filename.endswith(".pt"):
+        filename = filename.split(".")[0]
+        filename = filename + ".pt"
+        
+    torch.save(features, filename)
     
