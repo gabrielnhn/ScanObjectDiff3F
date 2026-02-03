@@ -1,29 +1,41 @@
 import numpy as np
 import torch
 from pytorch3d.structures import Pointclouds
+from pytorch3d.io import IO
 
-
-# --- 1. Update Loader to get Normals ---
-def load_pc_file_with_colours(filename, suncg=False):
+def load_pc_file_with_colours(filename):
     # Load bin file
     pc = np.fromfile(filename, dtype=np.float32)
 
     # Reshape based on format
-    # x, y, z, nx, ny, nz, r, g, b, ...
-    if suncg:
-        pc = pc[1:].reshape((-1, 3))
-        positions = pc[:, 0:3]
-        return positions, None, None
-    else:
-        pc = pc[1:].reshape((-1, 11))
-        positions = np.array(pc[:, 0:3])
-        normals = np.array(pc[:, 3:6]) # Capture Normals
-        colours = np.array(pc[:, 6:9])/255
-        return positions, colours, normals
+    # x, y, z, nx, ny, nz, r, g, b, instance_label, semantic_label
+    
+    pc = pc[1:].reshape((-1, 11))
+    positions = np.array(pc[:, 0:3])
+    normals = np.array(pc[:, 3:6]) # Capture Normals
+    colours = np.array(pc[:, 6:9])/255
+    # labels = np.array(pc[:, 10]).astype()
+    return positions, colours, normals
+
+def load_pc_file_with_labels(filename):
+    # Load bin file
+    pc = np.fromfile(filename, dtype=np.float32)
+
+    # Reshape based on format
+    # x, y, z, nx, ny, nz, r, g, b, instance_label, semantic_label
+    
+    pc = pc[1:].reshape((-1, 11))
+    positions = np.array(pc[:, 0:3])
+    normals = np.array(pc[:, 3:6]) # Capture Normals
+    colours = np.array(pc[:, 6:9])/255
+    labels = np.array(pc[:, 10]).astype(int)
+    return positions, colours, normals, labels
+
+
 
 
 def load_scanobjectnn_to_pytorch3d(filename, device):
-    positions_np, colours_np, normals_np = load_pc_file_with_colours(filename)
+    positions_np, colours_np, normals_np, labels_np = load_pc_file_with_labels(filename)
 
     # if colours_np is not None and colours_np.max() > 1.0:
     #     colours_np = colours_np / 255.0
@@ -54,6 +66,15 @@ def load_scanobjectnn_to_pytorch3d(filename, device):
         normals=[normals_tensor] if normals_tensor is not None else None
     )
     
-    return pcd
+    return pcd, labels
 
 
+def save_pointcloud_with_features(pcd, features, filename):
+    pcd_copy = Pointclouds(points=pcd.points_padded(), features=features)
+    
+    if not filename.endswith(".ply"):
+        filename = filename.split(".")[0]
+        filename = filename + ".ply"
+        
+    IO.save_pointcloud(pcd_copy, filename)
+    

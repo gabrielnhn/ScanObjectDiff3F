@@ -7,10 +7,13 @@ import trimesh
 
 # from diff3f_pc import get_features_per_point
 from diff3f_depthonly import get_features_per_point
-from pc_utils import load_scanobjectnn_to_pytorch3d 
+from pc_utils import load_scanobjectnn_to_pytorch3d, save_pointcloud_with_features
 from utils import cosine_similarity, get_colors
 from diffusion import init_pipe
 from dino import init_dino
+
+
+
 
 device = torch.device('cuda:0')
 torch.cuda.set_device(device)
@@ -36,8 +39,8 @@ def compute_pc_features(device, pipe, dino_model, pcd, prompt):
         tolerance=tolerance,
         num_images_per_prompt=num_images_per_prompt,
         use_normal_map=use_normal_map,
-    )
-    return features.cpu()
+    ).cpu()
+    return features
 
 def save_ply_with_colors(points, colors, filename):
     if colors.max() <= 1.0:
@@ -50,35 +53,47 @@ def save_ply_with_colors(points, colors, filename):
 pipe = init_pipe(device)
 dino_model = init_dino(device)
 
-SOURCE_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
-TARGET_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0271_00_00019.bin" 
+first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
+second_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0271_00_00019.bin" 
 
 print("Loading Point Clouds...")
-source_pcd = load_scanobjectnn_to_pytorch3d(SOURCE_FILE, device)
-target_pcd = load_scanobjectnn_to_pytorch3d(TARGET_FILE, device)
+first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(first_FILE, device)
+second_pcd, second_labels = load_scanobjectnn_to_pytorch3d(second_FILE, device)
 
-print("computing features for source (pillow a)...")
-f_source = compute_pc_features(device, pipe, dino_model, source_pcd, "a pillow")
+print("computing features for first (pillow a)...")
+f_first = compute_pc_features(device, pipe, dino_model, first_pcd, "a pillow")
 
-print("computing features for target (pillow b)...")
-f_target = compute_pc_features(device, pipe, dino_model, target_pcd, "a pillow")
+save_pointcloud_with_features(first_pcd, f_first, "pointcloud1_with_features")
+
+print("computing features for second (pillow b)...")
+f_second = compute_pc_features(device, pipe, dino_model, second_pcd, "a pillow")
+
+
+save_pointcloud_with_features(second_pcd, f_second, "pointcloud2_with_features")
+
 
 print("Calculating Correspondence...")
-sim_matrix = cosine_similarity(f_source.to(device), f_target.to(device))
+sim_matrix = cosine_similarity(f_first.to(device), f_second.to(device))
 
 s = torch.argmax(sim_matrix, dim=0).cpu().numpy()
 
-source_points_np = source_pcd.points_padded()[0].cpu().numpy()
-target_points_np = target_pcd.points_padded()[0].cpu().numpy()
+first_points_np = first_pcd.points_padded()[0].cpu().numpy()
+second_points_np = second_pcd.points_padded()[0].cpu().numpy()
 
-source_colors_np = source_pcd.features_padded()[0].cpu().numpy()
+# first_colors_np = first_pcd.features_padded()[0].cpu().numpy()
+# first_colors_np = get_colors(first_points_np) 
+# second_colors_mapped = first_colors_np[s]
+# trimesh.load("results_first.ply").show()
+# trimesh.load("results_second_correspondence.ply").show()
 
-source_colors_np = get_colors(source_points_np) 
+palette = np.array([
+        [255, 0, 0], 
+        [0, 255, 0], 
+        [0, 0, 255], 
+        [255, 255, 0],
+        [0, 255, 255],
+        [255, 0, 255],
+    ])
 
-target_colors_mapped = source_colors_np[s]
-
-save_ply_with_colors(source_points_np, source_colors_np, "results_source.ply")
-save_ply_with_colors(target_points_np, target_colors_mapped, "results_target_correspondence.ply")
-
-trimesh.load("results_source.ply").show()
-trimesh.load("results_target_correspondence.ply").show()
+save_ply_with_colors(first_points_np, palette[first_labels], "results_first.ply")
+save_ply_with_colors(second_points_np, palette[first_labels[s]], "results_second_correspondence.ply")

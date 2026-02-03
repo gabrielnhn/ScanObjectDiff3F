@@ -5,8 +5,9 @@ import trimesh
 # TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0219_00_00003.bin"
 # TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0362_00_00010.bin"
 # TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/toilet/scene0153_00_00006.bin"
-TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/toilet/scene0447_00_00006.bin"
-
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/toilet/scene0447_00_00006.bin"
+TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
+TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
 
 def visualize_internal_labels(bin_path):
     # 1. Load Data
@@ -47,9 +48,9 @@ def visualize_internal_labels(bin_path):
         [255, 0, 0], 
         [0, 255, 0], 
         [0, 0, 255], 
-        [255, 255, 0]
-        [0, 255, 255]
-        [255, 0, 255]
+        [255, 255, 0],
+        [0, 255, 255],
+        [255, 0, 255],
     ]
     
     for i, lbl in enumerate(unique_lbls):
