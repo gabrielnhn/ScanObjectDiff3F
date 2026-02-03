@@ -1,7 +1,12 @@
 import numpy as np
 import trimesh
 
-TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0219_00_00003.bin"
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0362_00_00010.bin"
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/toilet/scene0153_00_00006.bin"
+TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/toilet/scene0447_00_00006.bin"
+
 
 def visualize_internal_labels(bin_path):
     # 1. Load Data
@@ -12,6 +17,7 @@ def visualize_internal_labels(bin_path):
     data = raw_geom[1:].reshape((n_points, 11))
     
     positions = data[:, 0:3]
+    rgb_colors = data[:, 6:9]
     # Check the last two columns
     col_9 = data[:, 9]  # Index 9 (10th column)
     col_10 = data[:, 10] # Index 10 (11th column)
@@ -42,6 +48,8 @@ def visualize_internal_labels(bin_path):
         [0, 255, 0], 
         [0, 0, 255], 
         [255, 255, 0]
+        [0, 255, 255]
+        [255, 0, 255]
     ]
     
     for i, lbl in enumerate(unique_lbls):
@@ -53,7 +61,10 @@ def visualize_internal_labels(bin_path):
         print(f"  Class {lbl} -> {color}")
 
     pcd = trimesh.PointCloud(positions, colors=colors)
-    pcd.export("ground_truth_internal.ply")
-    print("Saved 'ground_truth_internal.ply'")
+    # pcd.export("ground_truth_internal.ply")
+    # print("Saved 'ground_truth_internal.ply'")
+    pcd.show()
+    pcd = trimesh.PointCloud(positions, colors=rgb_colors/255)
+    pcd.show()
 
 visualize_internal_labels(TEST_FILE)
