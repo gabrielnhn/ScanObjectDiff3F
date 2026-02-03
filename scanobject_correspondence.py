@@ -15,8 +15,8 @@ from dino import init_dino
 device = torch.device('cuda:0')
 torch.cuda.set_device(device)
 
-num_views = 20
-num_views = 20
+# num_views = 20
+num_views = 100
 H = 512
 W = 512
 num_images_per_prompt = 1
