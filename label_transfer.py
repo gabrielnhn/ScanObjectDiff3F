@@ -36,7 +36,7 @@ def run_transfer():
     verts_source = pcd_source.points_padded()[0]
     verts_target = pcd_target.points_padded()[0]
     
-    labels_source = "pointcloud1_with_features.npy"
+    labels_source = np.load("pointcloud1_with_features.npy")
     
     # Sanity Check
     if len(labels_source) != f_source.shape[0]:
@@ -49,7 +49,8 @@ def run_transfer():
 
     print("2. Filtering Source Features (Ignoring Grey/Background)...")
     
-    valid_mask = labels_source != -1
+    # valid_mask = labels_source != -1
+    valid_mask = labels_source
     
     f_source_clean = f_source[valid_mask]
     labels_source_clean = labels_source[valid_mask]

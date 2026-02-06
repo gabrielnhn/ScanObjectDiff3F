@@ -71,7 +71,7 @@ def load_scanobjectnn_to_pytorch3d(filename, device):
     return pcd, labels_np
 
 
-def save_pointcloud_with_features(pcd, features, filename):
+def save_pointcloud_with_features(pcd, features, filename, labels=None):
     # print("FEATURES UNSQUEEZE SHAPE", features.unsqueeze(0).shape)
     points = pcd.points_padded().to(device)
     # features = features.unsqueeze(0).to(device)
@@ -89,4 +89,10 @@ def save_pointcloud_with_features(pcd, features, filename):
         filename = filename + ".pt"
         
     torch.save(features, filename)
+
+    if labels is not None:
+        if not filename.endswith(".npy"):
+            filename = filename.split(".")[0]
+            filename = filename + ".npy"
     
+        np.save(filename, labels)    

@@ -6,11 +6,10 @@ from test_pc_scanobject import visualize_internal_labels
 # trimesh.load("./ground_truth_internal.ply").show()
 # trimesh.load("./pointcloud1_with_features.ply").show()
 
+# second_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0271_00_00019.bin" 
+# visualize_internal_labels(second_FILE)
 
 
-second_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0271_00_00019.bin" 
-visualize_internal_labels(second_FILE)
-
-
-trimesh.load("./results_target_transfer.ply").show()
+trimesh.load("./final_transfer_result.ply").show()
+trimesh.load("./final_source_gt.ply").show()
 

@@ -6,8 +6,8 @@ import trimesh
 # TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0362_00_00010.bin"
 # TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/toilet/scene0153_00_00006.bin"
 # TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/toilet/scene0447_00_00006.bin"
-# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
-TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
+TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
+# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
 
 def visualize_internal_labels(bin_path):
     raw_geom = np.fromfile(bin_path, dtype=np.float32)
@@ -50,4 +50,4 @@ def visualize_internal_labels(bin_path):
     # pcd = trimesh.PointCloud(positions, colors=rgb_colors/255)
     # pcd.show()
 
-# visualize_internal_labels(TEST_FILE)
+visualize_internal_labels(TEST_FILE)
