@@ -78,23 +78,38 @@ sim_matrix = cosine_similarity(f_first.to(device), f_second.to(device))
 
 s = torch.argmax(sim_matrix, dim=0).cpu().numpy()
 
-first_points_np = first_pcd.points_padded()#[0].cpu().numpy()
-second_points_np = second_pcd.points_padded()#[0].cpu().numpy()
+first_points_np = first_pcd.points_padded()[0].cpu().numpy()
+second_points_np = second_pcd.points_padded()[0].cpu().numpy()
 
-# first_colors_np = first_pcd.features_padded()[0].cpu().numpy()
-# first_colors_np = get_colors(first_points_np) 
-# second_colors_mapped = first_colors_np[s]
-# trimesh.load("results_first.ply").show()
-# trimesh.load("results_second_correspondence.ply").show()
+if torch.is_tensor(first_labels):
+    source_labels = first_labels.cpu().numpy().astype(int)
+else:
+    source_labels = first_labels.astype(int)
+
+target_labels_pred = source_labels[s]
 
 palette = np.array([
-        [255, 0, 0], 
-        [0, 255, 0], 
-        [0, 0, 255], 
-        [255, 255, 0],
-        [0, 255, 255],
-        [255, 0, 255],
-    ])
+    [255, 0, 0],    
+    [0, 255, 0],    
+    [0, 0, 255],    
+    [255, 255, 0],  
+    [0, 255, 255],  
+    [200, 200, 200] 
+])
 
-save_ply_with_colors(first_points_np, palette[first_labels], "results_first.ply")
-save_ply_with_colors(second_points_np, palette[first_labels[s]], "results_second_correspondence.ply")
+def labels_to_rgb(labels, palette):
+    safe_labels = labels.copy()
+    safe_labels[safe_labels >= len(palette)-1] = len(palette) - 1 
+    return palette[safe_labels]
+
+print("Saving results...")
+
+# Colorize Source (Ground Truth)
+c_source = labels_to_rgb(source_labels, palette)
+save_ply_with_colors(first_points_np, c_source, "results_source_gt.ply")
+
+# Colorize Target (Prediction via One-Shot Transfer)
+c_target = labels_to_rgb(target_labels_pred, palette)
+save_ply_with_colors(second_points_np, c_target, "results_target_transfer.ply")
+
+print("Done! Open 'results_source_gt.ply' and 'results_target_transfer.ply'.")
