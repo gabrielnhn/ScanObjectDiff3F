@@ -9,6 +9,7 @@ import trimesh
 TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
 # TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
 
+
 def visualize_internal_labels(bin_path):
     raw_geom = np.fromfile(bin_path, dtype=np.float32)
     n_points = int(raw_geom[0])
@@ -45,9 +46,11 @@ def visualize_internal_labels(bin_path):
         colors[labels == lbl] = color
         print(f"  Class {lbl} -> {color}")
 
-    pcd = trimesh.PointCloud(positions, colors=colors)
-    pcd.show()
-    # pcd = trimesh.PointCloud(positions, colors=rgb_colors/255)
+    # pcd = trimesh.PointCloud(positions, colors=colors)
     # pcd.show()
+    pcd = trimesh.PointCloud(positions, colors=rgb_colors/255)
+    pcd.show()
 
-visualize_internal_labels(TEST_FILE)
+
+if __name__ == "__main__":
+    visualize_internal_labels(TEST_FILE)

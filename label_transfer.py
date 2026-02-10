@@ -2,19 +2,20 @@ import torch
 import numpy as np
 import trimesh
 from pytorch3d.io import IO
-import os
+import sys
 
+# --- CONFIGURATION ---
+# Use CUDA if available, but store results on CPU to save VRAM
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 source_ply_path = "pointcloud1_with_features.ply"
 source_feat_path = "pointcloud1_with_features.pt"
+source_lbl_path  = "pointcloud1_with_features.npy" # Ensure this exists
 
 target_ply_path = "pointcloud2_with_features.ply"
 target_feat_path = "pointcloud2_with_features.pt"
 
-
 def save_ply_with_colors(points, colors, filename):
-    # Ensure colors are 0-255 uint8
     if colors.max() <= 1.0 and colors.max() > 0:
         colors = (colors * 255).astype(np.uint8)
     else:
@@ -24,92 +25,117 @@ def save_ply_with_colors(points, colors, filename):
     pcd.export(filename)
     print(f"Saved {filename}")
 
+def find_correspondences_chunked(feat_source, feat_target, chunk_size=2000):
+    """
+    Computes argmax(feat_target @ feat_source.T) in blocks.
+    Never allocates the full NxM matrix.
+    """
+    n_target = feat_target.shape[0]
+    n_source = feat_source.shape[0]
+    
+    # Store results on CPU to save GPU memory
+    nearest_indices = torch.zeros(n_target, dtype=torch.long, device='cpu')
+    
+    # Transpose source once
+    feat_source_t = feat_source.T
+    
+    print(f"   Matching {n_target} target points to {n_source} source points in chunks of {chunk_size}...")
+    
+    # Iterate over Target points
+    for i in range(0, n_target, chunk_size):
+        end = min(i + chunk_size, n_target)
+        
+        # 1. Grab a small batch of Target features
+        target_chunk = feat_target[i:end]
+        
+        # 2. Multiply ONLY this batch against all Source features
+        # Size: (Chunk_Size, N_Source) -> Much smaller!
+        sim_chunk = torch.mm(target_chunk, feat_source_t)
+        
+        # 3. Find the best match immediately
+        best_vals, best_idxs = torch.max(sim_chunk, dim=1)
+        
+        # 4. Save indices to CPU and discard the chunk
+        nearest_indices[i:end] = best_idxs.cpu()
+        
+        # Free memory
+        del sim_chunk
+        del best_idxs
+        
+    return nearest_indices
+
 def run_transfer():
     print("1. Loading Data...")
     
-    f_source = torch.load(source_feat_path).to(device).squeeze()
-    f_target = torch.load(target_feat_path).to(device).squeeze()
+    # Load features to GPU directly
+    f_source = torch.load(source_feat_path, map_location=device).squeeze()
+    f_target = torch.load(target_feat_path, map_location=device).squeeze()
     
-    pcd_source = IO().load_pointcloud(source_ply_path).to(device)
-    pcd_target = IO().load_pointcloud(target_ply_path).to(device)
+    # Load Geometry (for saving later)
+    pcd_source = IO().load_pointcloud(source_ply_path)
+    pcd_target = IO().load_pointcloud(target_ply_path)
     
-    verts_source = pcd_source.points_padded()[0]
-    verts_target = pcd_target.points_padded()[0]
+    verts_source = pcd_source.points_padded()[0].numpy()
+    verts_target = pcd_target.points_padded()[0].numpy()
     
-    labels_source = np.load("pointcloud1_with_features.npy")
-    
-    # Sanity Check
-    if len(labels_source) != f_source.shape[0]:
-        print(f"WARNING: Label count {len(labels_source)} != Feature count {f_source.shape[0]}")
-        # If mismatch, force trim to min length (rare, but safer)
-        min_len = min(len(labels_source), f_source.shape[0])
-        labels_source = labels_source[:min_len]
-        f_source = f_source[:min_len]
-        verts_source = verts_source[:min_len]
+    labels_source = np.load(source_lbl_path)
 
+    # --- Filtering Source ---
     print("2. Filtering Source Features (Ignoring Grey/Background)...")
-    
-    # valid_mask = labels_source != -1
-    valid_mask = labels_source
+    valid_mask = labels_source != -1
     
     f_source_clean = f_source[valid_mask]
     labels_source_clean = labels_source[valid_mask]
     
-    
     print(f"   Original Source Points: {len(labels_source)}")
     print(f"   Valid Part Points:      {len(labels_source_clean)} (Background removed)")
 
-    print("3. Calculating Correspondence...")
+    # --- Calculation ---
+    print("3. Calculating Correspondence (Memory Efficient)...")
     
-    # Normalize features for Cosine Similarity
+    # Normalize first
     f_source_norm = torch.nn.functional.normalize(f_source_clean, dim=-1)
     f_target_norm = torch.nn.functional.normalize(f_target, dim=-1)
     
-    # Matrix Multiplication: (N_target, D) @ (D, N_source_clean) -> (N_target, N_source_clean)
-    sim_matrix = torch.mm(f_target_norm, f_source_norm.T)
+    # Run Chunked Matching
+    # Note: We passed f_source_clean, so indices will map to labels_source_clean
+    best_match_indices = find_correspondences_chunked(f_source_norm, f_target_norm, chunk_size=5000)
     
-    # Find best match
-    best_match_indices = torch.argmax(sim_matrix, dim=1).cpu().numpy()
+    # --- Label Transfer ---
+    print("4. Transferring Labels...")
     
-    # --- TRANSFER LABELS ---
-    # Target Point[i] gets label of Clean Source Point[best_match[i]]
+    # best_match_indices is on CPU, labels_source_clean is numpy
+    best_match_indices = best_match_indices.numpy()
     predicted_labels = labels_source_clean[best_match_indices]
     
-    print("4. Saving Visualizations...")
-    
-    # Robust Palette (Red, Green, Blue, Yellow, Cyan, Magenta)
+    # --- Visualization ---
     palette = np.array([
-        [255, 0, 0],   # Class 0
-        [0, 255, 0],   # Class 1
-        [0, 0, 255],   # Class 2
-        [255, 255, 0], # Class 3
-        [0, 255, 255], # Class 4
-        [255, 0, 255], # Class 5
+        [255, 0, 0],   # 0: Red
+        [0, 255, 0],   # 1: Green
+        [0, 0, 255],   # 2: Blue
+        [255, 255, 0], # 3: Yellow
+        [0, 255, 255], # 4: Cyan
+        [255, 0, 255], # 5: Magenta
     ])
     
-    # Helper to map labels to colors safely
     def map_colors(lbls):
-        # Clamp labels to palette size to prevent crash
         safe_lbls = np.clip(lbls, 0, len(palette)-1)
         return palette[safe_lbls]
 
-    # 1. Save Target Prediction
     target_colors = map_colors(predicted_labels)
-    save_ply_with_colors(verts_target.cpu().numpy(), target_colors, "final_transfer_result.ply")
+    save_ply_with_colors(verts_target, target_colors, "final_transfer_result.ply")
     
-    # 2. Save Source GT (just to compare)
-    # We map -1 (background) to Grey [128, 128, 128] manually for this visual
-    source_colors = np.zeros((len(labels_source), 3), dtype=np.uint8) + 128
-    for cls_id in np.unique(labels_source):
-        if cls_id >= 0:
-            mask = labels_source == cls_id
-            source_colors[mask] = palette[cls_id % len(palette)]
-            
-    save_ply_with_colors(verts_source.cpu().numpy(), source_colors, "final_source_gt.ply")
-
     print("\nDONE.")
-    print("-> 'final_transfer_result.ply' should now have NO greys (full transfer).")
-    print("-> 'final_source_gt.ply' shows the original with greys.")
+    # 2. Save Source GT (just to compare)
+    # # We map -1 (background) to Grey [128, 128, 128] manually for this visual
+    # source_colors = np.zeros((len(labels_source), 3), dtype=np.uint8) + 128  
+    # for cls_id in np.unique(labels_source):  
+    #     if cls_id >= 0: 
+    #         mask = labels_source == cls_id             
+    #         source_colors[mask] = palette[cls_id % len(palette)]
+    save_ply_with_colors(verts_source, map_colors(labels_source), "final_source_gt.ply") 
+              
 
 if __name__ == "__main__":
-    run_transfer()
+    with torch.no_grad(): # Disable gradients to save even more memory
+        run_transfer()
