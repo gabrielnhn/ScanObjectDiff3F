@@ -4,13 +4,11 @@ import trimesh
 from pytorch3d.io import IO
 import sys
 
-# --- CONFIGURATION ---
-# Use CUDA if available, but store results on CPU to save VRAM
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 source_ply_path = "pointcloud1_with_features.ply"
 source_feat_path = "pointcloud1_with_features.pt"
-source_lbl_path  = "pointcloud1_with_features.npy" # Ensure this exists
+source_lbl_path  = "pointcloud1_with_features.npy"
 
 target_ply_path = "pointcloud2_with_features.ply"
 target_feat_path = "pointcloud2_with_features.pt"
@@ -33,13 +31,8 @@ def find_correspondences_chunked(feat_source, feat_target, chunk_size=2000):
     n_target = feat_target.shape[0]
     n_source = feat_source.shape[0]
     
-    # Store results on CPU to save GPU memory
     nearest_indices = torch.zeros(n_target, dtype=torch.long, device='cpu')
-    
-    # Transpose source once
     feat_source_t = feat_source.T
-    
-    print(f"   Matching {n_target} target points to {n_source} source points in chunks of {chunk_size}...")
     
     # Iterate over Target points
     for i in range(0, n_target, chunk_size):
@@ -126,13 +119,6 @@ def run_transfer():
     save_ply_with_colors(verts_target, target_colors, "final_transfer_result.ply")
     
     print("\nDONE.")
-    # 2. Save Source GT (just to compare)
-    # # We map -1 (background) to Grey [128, 128, 128] manually for this visual
-    # source_colors = np.zeros((len(labels_source), 3), dtype=np.uint8) + 128  
-    # for cls_id in np.unique(labels_source):  
-    #     if cls_id >= 0: 
-    #         mask = labels_source == cls_id             
-    #         source_colors[mask] = palette[cls_id % len(palette)]
     save_ply_with_colors(verts_source, map_colors(labels_source), "final_source_gt.ply") 
               
 
