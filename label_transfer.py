@@ -54,6 +54,52 @@ def find_correspondences_chunked(feat_source, feat_target, chunk_size=2000):
         
     return nearest_indices
 
+
+import numpy as np
+from itertools import permutations
+
+def best_label_permutation(predicted_labels, labels_target):
+    """Source: Mistral"""
+    # Get unique labels
+    unique_pred = np.unique(predicted_labels)
+    unique_target = np.unique(labels_target)
+
+    # Find the intersection of unique labels
+    common_labels = np.intersect1d(unique_pred, unique_target)
+
+    if len(common_labels) == 0:
+        raise ValueError("No common labels between predicted and target.")
+
+    # Generate all possible permutations of common labels
+    perms = list(permutations(common_labels))
+
+    best_count = 0
+    best_perm = None
+
+    for perm in perms:
+        # Create a mapping from original to permuted labels
+        mapping = {orig: perm[i] for i, orig in enumerate(common_labels)}
+        # Apply the mapping to predicted_labels (only for common labels)
+        permuted_pred = np.array([
+            mapping[label] if label in mapping else label
+            for label in predicted_labels
+        ])
+        # Count matches
+        matches = np.sum(permuted_pred == labels_target)
+        if matches > best_count:
+            best_count = matches
+            best_perm = perm
+
+    return best_perm, best_count / len(labels_target)
+
+    # Example usage:
+    # predicted_labels = np.array([0, 1, 0, 1, 2, 3])
+    # labels_target = np.array([2, 0, 2, 0, 1, 4])
+
+    # best_perm, accuracy = best_label_permutation(predicted_labels, labels_target)
+    # print("Best permutation:", best_perm)
+    # print("Accuracy:", accuracy)
+
 def run_transfer():
     print("Loading Data...")
     
@@ -96,10 +142,12 @@ def run_transfer():
     # print(torch.count_nonzero(torch.eq(predicted_labels, torch.tensor(labels_target)))
     #       / torch.numel(predicted_labels))
     
+    print("Exact labels:")
     equal = np.where(predicted_labels == labels_target, 1, 0)
     print(np.count_nonzero(equal), "/", np.size(equal), " == ", np.count_nonzero(equal) / np.size(equal))
     
-    
+    print("Best permutation:", best_label_permutation(predicted_labels, labels_target)[1])
+
     
     
     # --- Visualization ---
