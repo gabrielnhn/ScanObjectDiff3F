@@ -6,8 +6,8 @@ import trimesh
 # TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0362_00_00010.bin"
 # TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/toilet/scene0153_00_00006.bin"
 # TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/toilet/scene0447_00_00006.bin"
-TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
-# TEST_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
+TEST_FILE1 = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
+TEST_FILE2 = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
 
 
 def visualize_internal_labels(bin_path):
@@ -32,25 +32,28 @@ def visualize_internal_labels(bin_path):
     colors = np.zeros((n_points, 3), dtype=np.uint8) + 128 # Grey Base
     
     unique_lbls = np.unique(labels)
-    palette = [
-        [255, 0, 0], 
-        [0, 255, 0], 
-        [0, 0, 255], 
+    palette = np.array([
+        [255, 0, 0],  
+        [0, 255, 0],  
+        [0, 0, 255],  
         [255, 255, 0],
         [0, 255, 255],
         [255, 0, 255],
-    ]
+    ])
     
     for i, lbl in enumerate(unique_lbls):
-        color = palette[i % len(palette)]
+        safe_idx = lbl if lbl >= 0 else len(palette) - 1 
+        color = palette[safe_idx % len(palette)] 
+        
         colors[labels == lbl] = color
         print(f"  Class {lbl} -> {color}")
 
-    # pcd = trimesh.PointCloud(positions, colors=colors)
-    # pcd.show()
     pcd = trimesh.PointCloud(positions, colors=rgb_colors/255)
+    pcd.show()
+    pcd = trimesh.PointCloud(positions, colors=colors)
     pcd.show()
 
 
 if __name__ == "__main__":
-    visualize_internal_labels(TEST_FILE)
+    visualize_internal_labels(TEST_FILE1)
+    visualize_internal_labels(TEST_FILE2)
