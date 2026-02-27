@@ -23,7 +23,7 @@ num_views = 50
 H = 512
 W = 512
 num_images_per_prompt = 1
-tolerance = 0.004
+tolerance = 0.1
 use_normal_map = True
 
 def compute_pc_features_dinoonly(device,
@@ -94,25 +94,6 @@ gc.collect()
 second_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
 second_pcd, second_labels = load_scanobjectnn_to_pytorch3d(second_FILE, device)
 
-# --- SAFETY DOWNSAMPLE ---
-# If points > 50,000, random sample down to 50k to prevent OOM
-N = second_pcd.points_padded().shape[1]
-if N > 50000:
-    print(f"File is huge ({N} points). Downsampling to 50k for safety...")
-    # Get random indices
-    idx = torch.randperm(N)[:50000].to(device)
-    
-    # Subsample points
-    new_points = second_pcd.points_padded()[:, idx, :]
-    new_features = second_pcd.features_padded()[:, idx, :] if second_pcd.features_padded() is not None else None
-    
-    # Re-create Pointclouds structure
-    from pytorch3d.structures import Pointclouds
-    second_pcd = Pointclouds(points=new_points, features=new_features)
-    
-    # Subsample labels if they exist
-    if second_labels is not None:
-        second_labels = second_labels[idx.cpu().numpy()]
 
 
 

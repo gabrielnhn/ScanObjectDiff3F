@@ -36,32 +36,38 @@ def load_pc_file_with_labels(filename):
 
 
 
-def load_scanobjectnn_to_pytorch3d(filename, device):
+def load_scanobjectnn_to_pytorch3d(filename, device, max_points=50000):
     positions_np, colours_np, normals_np, labels_np = load_pc_file_with_labels(filename)
 
-    # if colours_np is not None and colours_np.max() > 1.0:
-    #     colours_np = colours_np / 255.0
-
-    # if colours_np is not None and colours_np.max() < 2:
-    # colours_np = colours_np / 255
-
-
+    # 1. Safety Downsampling (Random Shuffle & Cut)
+    if len(positions_np) > max_points:
+        print(f"   -> Downsampling {len(positions_np)} to {max_points} points...")
+        # Generate random permutation
+        indices = np.random.permutation(len(positions_np))[:max_points]
+        
+        positions_np = positions_np[indices]
+        if colours_np is not None: colours_np = colours_np[indices]
+        if normals_np is not None: normals_np = normals_np[indices]
+        if labels_np is not None: labels_np = labels_np[indices]
 
     points_tensor = torch.from_numpy(positions_np).float().to(device)
     
-    # Pack Features (Color)
-    features_tensor = None
+    # Pack Features
     if colours_np is not None:
+        # Normalize if 0-255 range detected
+        if colours_np.max() > 1.0:
+            colours_np = colours_np / 255.0
         features_tensor = torch.from_numpy(colours_np).float().to(device)
     else:
-        features_tensor = torch.ones_like(points_tensor).to(device) # Default white
+        features_tensor = torch.ones_like(points_tensor).to(device)
 
     # Pack Normals
     normals_tensor = None
     if normals_np is not None:
         normals_tensor = torch.from_numpy(normals_np).float().to(device)
 
-    # Create Pointclouds object with BOTH features and normals
+    # Create PyTorch3D Structure
+    from pytorch3d.structures import Pointclouds
     pcd = Pointclouds(
         points=[points_tensor], 
         features=[features_tensor],
