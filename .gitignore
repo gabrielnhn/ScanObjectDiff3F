@@ -2,3 +2,8 @@
 *.html
 __pycache__
 .vscode
+*.png
+*.jpg
+*.pt
+*.npy
+results/
