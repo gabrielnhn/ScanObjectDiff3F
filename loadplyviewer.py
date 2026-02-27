@@ -10,6 +10,7 @@ from test_pc_scanobject import visualize_internal_labels
 # visualize_internal_labels(second_FILE)
 
 
-trimesh.load("./final_source_gt.ply").show()
-trimesh.load("./final_transfer_result.ply").show()
+# trimesh.load("./final_source_gt.ply").show()
+# trimesh.load("./final_transfer_result.ply").show()
+trimesh.load("./debug_heatmap_source.ply").show()
 

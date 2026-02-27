@@ -95,7 +95,10 @@ def render_with_pytorch3d(device, pcd, num_views=8, H=512, W=512):
 
     renderer = PointsRenderer(
         rasterizer=rasterizer,
-        compositor=AlphaCompositor(background_color=(0, 0, 0))
+        compositor=AlphaCompositor(
+                # background_color=(0, 0, 0)
+                background_color=(1, 1, 1)
+            )
     )
 
     # 3. Render
@@ -148,7 +151,7 @@ def get_features_per_point(
 
     # Grid setup
     pixel_coords = arange_pixels((H, W), invert_y_axis=True)[0]
-    pixel_coords[:, 0] = torch.flip(pixel_coords[:, 0], dims=[0])
+    # pixel_coords[:, 0] = torch.flip(pixel_coords[:, 0], dims=[0])
     grid = arange_pixels((H, W), invert_y_axis=False)[0].to(device).reshape(1, H, W, 2).half()
     
     torch.cuda.empty_cache()
