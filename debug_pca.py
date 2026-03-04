@@ -9,8 +9,7 @@ import matplotlib.pyplot as plt
 # Use the file you successfully processed (or the one giving gray heatmaps)
 # PLY_PATH = "pointcloud1_with_features.ply" 
 # FEAT_PATH = "pointcloud1_with_features.pt"
-PLY_PATH = "pointcloud2_with_features.ply" 
-FEAT_PATH = "pointcloud2_with_features.pt"
+
 
 def compute_pca_colors(features):
     """
@@ -47,7 +46,7 @@ def compute_pca_colors(features):
         
     return (components * 255).astype(np.uint8)
 
-def main():
+def main(FEAT_PATH, PLY_PATH, out):
     print(f"Loading {FEAT_PATH}...")
     try:
         features = torch.load(FEAT_PATH, map_location='cpu').squeeze()
@@ -76,7 +75,7 @@ def main():
     pca_colors = compute_pca_colors(features)
     
     # Save Output
-    out_name = "debug_pca_visual.ply"
+    out_name = f"debug_pca_visual{out}.ply"
     print(f"Saving PCA visualization to {out_name}...")
     
     pcd_out = trimesh.PointCloud(vertices=vertices, colors=pca_colors)
@@ -84,4 +83,5 @@ def main():
     print("Done. Open 'debug_pca_visual.ply' in MeshLab/CloudCompare.")
 
 if __name__ == "__main__":
-    main()
+    main(PLY_PATH = "pointcloud2_with_features.ply", FEAT_PATH = "pointcloud2_with_features.pt", out="1")
+    main(PLY_PATH = "pointcloud1_with_features.ply", FEAT_PATH = "pointcloud1_with_features.pt", out="2")

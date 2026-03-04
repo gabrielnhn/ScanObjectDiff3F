@@ -65,7 +65,7 @@ def visualize_internal_labels(bin_path):
 
 
 if __name__ == "__main__":
-    visualize_internal_labels(TEST_FILE1)
+    # visualize_internal_labels(TEST_FILE1)
     visualize_internal_labels(TEST_FILE2)
     # visualize_internal_labels(TEST_FILE3)
     # visualize_internal_labels(TEST_FILE4)
