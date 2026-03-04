@@ -32,3 +32,7 @@ pip install accelerate==0.24.0
 pip install plyfile
 pip install trimesh --no-deps --force-reinstall
 ```
+
+
+Dataset:
+Download from https://hkust-vgd.ust.hk/scanobjectnn/

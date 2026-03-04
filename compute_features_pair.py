@@ -8,8 +8,7 @@ import numpy as np
 # from diff3f_depthonly import get_features_per_point
 from diff3f_dinoonly import get_features_per_point
 from pc_utils import load_scanobjectnn_to_pytorch3d, save_pointcloud_with_features
-from utils import cosine_similarity, get_colors
-from diff3f.diffusion import init_pipe
+# from diff3f.diffusion import init_pipe
 from dino2 import init_dino
 
 
