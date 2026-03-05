@@ -34,7 +34,7 @@ def get_depthonly_style_grid(H, W, device):
     y_grid, x_grid = torch.meshgrid(y_range, x_range, indexing='ij')
     return torch.stack((x_grid, y_grid), dim=-1)
 
-def render_with_pytorch3d(device, pcd, num_views=8, H=512, W=512):
+def render_with_pytorch3d(device, pcd, num_views, H=512, W=512):
     bbox = pcd.get_bounding_boxes()
     bbox_min = bbox.min(dim=-1).values[0]
     bbox_max = bbox.max(dim=-1).values[0]
