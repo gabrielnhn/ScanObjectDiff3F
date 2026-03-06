@@ -24,6 +24,12 @@ imagenet_classes = ResNet50_Weights.IMAGENET1K_V1.meta["categories"]
 FEATURE_DIMS = 768 
 
 
+from datetime import datetime
+import os
+if not os.path.isdir("renders"):
+    os.mkdir("renders")
+
+
 import torch
 import torch.nn as nn
 from pytorch3d.renderer import AlphaCompositor
@@ -197,7 +203,8 @@ def get_features_per_point(
         class_str = imagenet_classes[class_idx]
         # UNCOMMENT TO SAVE VISUALIZATion RENDER
         pilimg = tpl(img_rgb.squeeze(0))
-        from datetime import datetime
+        
+        
         pilimg.save(f"renders/RENDER{datetime.now().hour}:{datetime.now().minute}:{datetime.now().second}-{class_str}-{dino_score}.png")        
         # exit()
         
