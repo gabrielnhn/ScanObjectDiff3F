@@ -20,13 +20,33 @@ tpl = TPL()
 
 FEATURE_DIMS = 768 
 
+
+import torch
+import torch.nn as nn
+from pytorch3d.renderer import AlphaCompositor
+
+class CircleRenderer(nn.Module):
+    """
+    Render circles, not spheres, requires precomputed fragments
+    """
+    def __init__(self, background_color=(1.0, 1.0, 1.0)):
+        super().__init__()
+        self.compositor = AlphaCompositor(background_color=background_color)
+
+    def forward(self, fragments, pcd_batch):
+        weights = (fragments.idx != -1).float().permute(0, 3, 1, 2)
+        indices = fragments.idx.long().permute(0, 3, 1, 2)
+        features = pcd_batch.features_packed().permute(1, 0)
+        images = self.compositor(indices, weights, features)
+        return images.permute(0, 2, 3, 1)
+
 def get_grid(H, W, device):
     x_range = torch.linspace(1, -1, W, device=device) # X Flip
     y_range = torch.linspace(1, -1, H, device=device) # Y Invert
     y_grid, x_grid = torch.meshgrid(y_range, x_range, indexing='ij')
     return torch.stack((x_grid, y_grid), dim=-1)
 
-def render_with_pytorch3d(device, pcd, num_views, H=512, W=512):
+def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     bbox = pcd.get_bounding_boxes()
     bbox_min = bbox.min(dim=-1).values[0]
     bbox_max = bbox.max(dim=-1).values[0]
@@ -63,54 +83,69 @@ def render_with_pytorch3d(device, pcd, num_views, H=512, W=512):
     num_actual_views = R.shape[0]
 
 
-    # raster_settings = PointsRasterizationSettings(
-    #     image_size=(H, W), 
-    #     radius=0.02,        
-    #     points_per_pixel=5, 
-    #     bin_size=0 
-    # )
+    raster_settings = PointsRasterizationSettings(
+        image_size=(H, W), 
+        radius=0.02,        
+        points_per_pixel=5, 
+        bin_size=0 
+    )
     
     # https://github.com/niladridutt/Diffusion-3D-Features/blob/main/render_point_cloud.py
-    raster_settings = PointsRasterizationSettings(
-        image_size=(H,W),
-        radius = 0.01,
-        points_per_pixel = 1,
-        bin_size = 0,
-        max_points_per_bin = 0
-    )
+    # raster_settings = PointsRasterizationSettings(
+    #     image_size=(H,W),
+    #     radius = 0.01,
+    #     points_per_pixel = 1,
+    #     bin_size = 0,
+    #     max_points_per_bin = 0
+    # )
 
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
-    
-    # points = pcd.points_padded()[0]
-    # features = torch.ones_like(points).to(device)
-    # pcd_render = pcd.update_features(features)
-
-    renderer = PointsRenderer(
-        rasterizer=rasterizer,
-        compositor=AlphaCompositor(background_color=(1, 1, 1)) # White Background
-    )
+    # renderer = PointsRenderer(
+    #     rasterizer=rasterizer,
+    #     compositor=AlphaCompositor(background_color=(1, 1, 1)) # White Background
+    # )
+    renderer = CircleRenderer(background_color=(1,1,1)).to(device)
 
     pcd_batch = pcd.extend(num_actual_views)
-    
+
     # do the rendering
+    fragments = rasterizer(pcd_batch)
+    images = renderer(fragments, pcd_batch).cpu()
+
+    # Get depth and mask like normal
+    depth = fragments.zbuf[..., 0].cpu()
+    valid_mask = (fragments.idx[..., 0] != -1).cpu()
+    depth[~valid_mask] = -1
     
+    
+    
+    # STUPID WAY RECOMPUTING STUFF
     # images = renderer(pcd_batch).cpu()
     # fragments = rasterizer(pcd_batch)
     # depth = fragments.zbuf[..., 0].cpu()
     # valid_mask = (fragments.idx[..., 0] != -1).cpu()
     # depth[~valid_mask] = -1
 
-    fragments = rasterizer(pcd_batch)
-    depth = fragments.zbuf[..., 0].cpu()
-    valid_mask = (fragments.idx[..., 0] != -1).cpu()
-    depth[~valid_mask] = -1
-    
-    images = renderer.compositor(
-        fragments, 
-        pcd_batch, 
-    ).cpu()
 
-    del fragments, pcd_batch
+    # SMART WAY THAT DOESNT WORK
+    # fragments = rasterizer(pcd_batch)
+    # depth = fragments.zbuf[..., 0].cpu()
+    # valid_mask = (fragments.idx[..., 0] != -1).cpu()
+    # depth[~valid_mask] = -1    
+    # pt_features = pcd_batch.features_padded()
+    # alphas = torch.ones(
+    #     (pt_features.shape[0], pt_features.shape[1], 1), 
+    #     device=device
+    # )
+    # images = renderer.compositor(
+    #     fragments, 
+    #     alphas,
+    #     pt_features, 
+    # ).cpu()
+    # images = renderer(fragments=fragments).cpu()
+
+
+    del fragments, pcd_batch #, pt_features
     return images, depth, cameras
 
 def get_features_per_point(
@@ -122,7 +157,7 @@ def get_features_per_point(
     if points is None: points = pcd.points_padded()[0]
 
     print("Rendering...")
-    batched_imgs, depth, cameras = render_with_pytorch3d(device, pcd, num_views, H, W)
+    batched_imgs, depth, cameras = render_with_pytorch3d(device, pcd, num_views, points, H, W)
 
     ndc_grid = get_grid(H, W, device)
     pixel_coords_flat = ndc_grid.reshape(-1, 2) 
@@ -152,9 +187,11 @@ def get_features_per_point(
         img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
         
         # UNCOMMENT TO SAVE VISUALIZATion RENDER
-        # pilimg = tpl(img_rgb.squeeze(0))
-        # from datetime import datetime
-        # pilimg.save(f"LATESTRENDER{datetime.now()}.png")        
+        pilimg = tpl(img_rgb.squeeze(0))
+        from datetime import datetime
+        pilimg.save(f"LATESTRENDER{datetime.now()}.png")        
+        exit()
+        
         
         
         dino_feat = get_dino_features(device, dino_model, img_rgb)

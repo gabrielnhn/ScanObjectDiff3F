@@ -6,7 +6,7 @@ import numpy as np
 
 # from diff3f_pc import get_features_per_point
 # from diff3f_depthonly import get_features_per_point
-from diff3f.diff3f_dinoonly import get_features_per_point
+from diff3f.features_dinoonly import get_features_per_point
 from pc_utils import load_scanobjectnn_to_pytorch3d, save_pointcloud_with_features
 # from diff3f.diffusion import init_pipe
 from dino2 import init_dino
@@ -70,8 +70,9 @@ dino_model = init_dino(device)
 
 # first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/014_00015.bin"
 # second_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/pillow/scene0271_00_00019.bin" 
-first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
 # first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/061_00000.bin"
+# first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
+first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
 
 
 first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(first_FILE, device)
@@ -85,6 +86,10 @@ del f_first, first_pcd, first_labels
 torch.cuda.empty_cache()
 import gc
 gc.collect()
+
+
+# second_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
+
 
 second_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
 second_pcd, second_labels = load_scanobjectnn_to_pytorch3d(second_FILE, device)
