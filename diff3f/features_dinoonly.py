@@ -13,10 +13,13 @@ from pytorch3d.renderer import (
     AlphaCompositor,
     PerspectiveCameras
 )
-from dino2 import get_dino_features
+from dino2 import get_dino_features_and_score
 import torchvision
 TPL = torchvision.transforms.ToPILImage
 tpl = TPL()
+
+from torchvision.models import ResNet50_Weights
+imagenet_classes = ResNet50_Weights.IMAGENET1K_V1.meta["categories"]
 
 FEATURE_DIMS = 768 
 
@@ -86,7 +89,7 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     raster_settings = PointsRasterizationSettings(
         image_size=(H, W), 
         radius=0.02,        
-        points_per_pixel=5, 
+        points_per_pixel=1, 
         bin_size=0 
     )
     
@@ -112,13 +115,10 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     fragments = rasterizer(pcd_batch)
     images = renderer(fragments, pcd_batch).cpu()
 
-    # Get depth and mask like normal
     depth = fragments.zbuf[..., 0].cpu()
     valid_mask = (fragments.idx[..., 0] != -1).cpu()
     depth[~valid_mask] = -1
-    
-    
-    
+     
     # STUPID WAY RECOMPUTING STUFF
     # images = renderer(pcd_batch).cpu()
     # fragments = rasterizer(pcd_batch)
@@ -186,15 +186,19 @@ def get_features_per_point(
         # Extract DINO
         img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
         
+        # dino_feat = get_dino_features(device, dino_model, img_rgb)
+        dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb)
+        
+        
+        class_str = imagenet_classes[class_idx]
         # UNCOMMENT TO SAVE VISUALIZATion RENDER
         pilimg = tpl(img_rgb.squeeze(0))
         from datetime import datetime
-        pilimg.save(f"LATESTRENDER{datetime.now()}.png")        
-        exit()
+        pilimg.save(f"RENDER{datetime.now().hour}:{datetime.now().minute}:{datetime.now().second}-{class_str}-{dino_score}.png")        
+        # exit()
         
         
         
-        dino_feat = get_dino_features(device, dino_model, img_rgb)
         
         dino_flat = dino_feat.flatten(2).squeeze(0).T 
         features_valid = dino_flat[valid_mask]
