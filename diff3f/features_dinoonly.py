@@ -206,6 +206,10 @@ def get_features_per_point(
         
         dino_flat = dino_feat.flatten(2).squeeze(0).T 
         features_valid = dino_flat[valid_mask]
+        
+        # WEIGH FEATURES ACCORDING TO DINO SCORE
+        features_valid = features_valid * dino_score
+        
 
         # Accumulate (Chunked Nearest Neighbor)
         chunk_size = 5000
@@ -221,7 +225,7 @@ def get_features_per_point(
             ft_per_point.index_add_(0, closest, features_valid[i:end])
             num_hits_per_point.index_add_(0, closest, torch.ones_like(closest, dtype=torch.float16).unsqueeze(1))
             
-        del world_coords, features_valid, dino_feat, img_rgb, current_depth
+        del world_coords, features_valid, dino_feat, img_rgb, current_depth, dino_score, class_idx
 
     # Average
     mask = (num_hits_per_point > 0).squeeze()
