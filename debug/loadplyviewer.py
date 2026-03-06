@@ -1,5 +1,5 @@
 import trimesh
-from test_pc_scanobject import visualize_internal_labels
+# from test_pc_scanobject import visualize_internal_labels
 # trimesh.load("results_source.ply").show()
 # trimesh.load("results_target_correspondence.ply").show()
 # trimesh.load("final_ground_truth.ply").show()

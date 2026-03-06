@@ -56,20 +56,24 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     bb_diff = bbox_max - bbox_min
     bbox_center = (bbox_min + bbox_max) / 2.0
     
-    # Distance Logic
+    # distance
     scaling_factor = 0.65
     distance = torch.sqrt((bb_diff * bb_diff).sum())
     distance *= scaling_factor
     
-    # Trajectory Logic
+    # trajectory - NOT THE SAME AS IN DIFF3F ANYMORE
+    
     steps = int(math.sqrt(num_views))
     if steps < 1: steps = 1
-    end = 360 - 360/steps
-    
-    # Create grid of views
-    elevation = torch.linspace(start=0, end=end, steps=steps).repeat(steps)
-    azimuth = torch.linspace(start=0, end=end, steps=steps)
+    azimuth_end = 360 - 360/steps
+    azimuth = torch.linspace(start=0, end=azimuth_end, steps=steps)
     azimuth = torch.repeat_interleave(azimuth, steps)
+    
+    # ELEVATION - now different
+    # elevation = torch.linspace(start=0, end=azimuth_end, steps=steps).repeat(steps)
+    elev_start, elev_end = 0, 80
+    elevation = torch.linspace(start=elev_start, end=elev_end, steps=steps).repeat(steps)
+    
     
     # Calculate R, T
     R, T = look_at_view_transform(
@@ -194,7 +198,7 @@ def get_features_per_point(
         # UNCOMMENT TO SAVE VISUALIZATion RENDER
         pilimg = tpl(img_rgb.squeeze(0))
         from datetime import datetime
-        pilimg.save(f"RENDER{datetime.now().hour}:{datetime.now().minute}:{datetime.now().second}-{class_str}-{dino_score}.png")        
+        pilimg.save(f"renders/RENDER{datetime.now().hour}:{datetime.now().minute}:{datetime.now().second}-{class_str}-{dino_score}.png")        
         # exit()
         
         

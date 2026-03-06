@@ -78,8 +78,8 @@ first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/
 first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(first_FILE, device)
 print("computing features for first (pillow a)...")
 f_first = compute_pc_features_dinoonly(device, dino_model, first_pcd)
-# save_pointcloud_with_features(first_pcd, f_first, "pointcloud1_with_features", first_labels)
-save_pointcloud_with_features(first_pcd, f_first, "pointcloud2_with_features", first_labels)
+save_pointcloud_with_features(first_pcd, f_first, "pointcloud1_with_features", first_labels)
+# save_pointcloud_with_features(first_pcd, f_first, "pointcloud2_with_features", first_labels)
 
 
 del f_first, first_pcd, first_labels
