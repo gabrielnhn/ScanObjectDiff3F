@@ -18,17 +18,9 @@ import torchvision
 TPL = torchvision.transforms.ToPILImage
 tpl = TPL()
 
-
-
-
 FEATURE_DIMS = 768 
 
-def get_depthonly_style_grid(H, W, device):
-    """
-    Replicates the 'depthonly' grid logic:
-    1. Y is inverted (1 to -1)
-    2. X is flipped (1 to -1) to match the mirroring in the renderer
-    """
+def get_grid(H, W, device):
     x_range = torch.linspace(1, -1, W, device=device) # X Flip
     y_range = torch.linspace(1, -1, H, device=device) # Y Invert
     y_grid, x_grid = torch.meshgrid(y_range, x_range, indexing='ij')
@@ -70,11 +62,21 @@ def render_with_pytorch3d(device, pcd, num_views, H=512, W=512):
     # Recalculate actual views (since sqrt might truncate)
     num_actual_views = R.shape[0]
 
+
+    # raster_settings = PointsRasterizationSettings(
+    #     image_size=(H, W), 
+    #     radius=0.02,        
+    #     points_per_pixel=5, 
+    #     bin_size=0 
+    # )
+    
+    # https://github.com/niladridutt/Diffusion-3D-Features/blob/main/render_point_cloud.py
     raster_settings = PointsRasterizationSettings(
-        image_size=(H, W), 
-        radius=0.02,        
-        points_per_pixel=5, 
-        bin_size=0 
+        image_size=(H,W),
+        radius = 0.01,
+        points_per_pixel = 1,
+        bin_size = 0,
+        max_points_per_bin = 0
     )
 
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
@@ -82,20 +84,31 @@ def render_with_pytorch3d(device, pcd, num_views, H=512, W=512):
     # points = pcd.points_padded()[0]
     # features = torch.ones_like(points).to(device)
     # pcd_render = pcd.update_features(features)
-    pcd_render = pcd
 
     renderer = PointsRenderer(
         rasterizer=rasterizer,
         compositor=AlphaCompositor(background_color=(1, 1, 1)) # White Background
     )
 
-    pcd_batch = pcd_render.extend(num_actual_views)
-    images = renderer(pcd_batch).cpu()
+    pcd_batch = pcd.extend(num_actual_views)
+    
+    # do the rendering
+    
+    # images = renderer(pcd_batch).cpu()
+    # fragments = rasterizer(pcd_batch)
+    # depth = fragments.zbuf[..., 0].cpu()
+    # valid_mask = (fragments.idx[..., 0] != -1).cpu()
+    # depth[~valid_mask] = -1
+
     fragments = rasterizer(pcd_batch)
     depth = fragments.zbuf[..., 0].cpu()
-    
     valid_mask = (fragments.idx[..., 0] != -1).cpu()
     depth[~valid_mask] = -1
+    
+    images = renderer.compositor(
+        fragments, 
+        pcd_batch, 
+    ).cpu()
 
     del fragments, pcd_batch
     return images, depth, cameras
@@ -108,22 +121,23 @@ def get_features_per_point(
     t1 = time()
     if points is None: points = pcd.points_padded()[0]
 
-    print("Rendering (Robust BBox Mode)...")
+    print("Rendering...")
     batched_imgs, depth, cameras = render_with_pytorch3d(device, pcd, num_views, H, W)
 
-    # Use the grid logic that matches 'depthonly'
-    ndc_grid = get_depthonly_style_grid(H, W, device)
+    ndc_grid = get_grid(H, W, device)
     pixel_coords_flat = ndc_grid.reshape(-1, 2) 
 
     ft_per_point = torch.zeros((len(points), FEATURE_DIMS), dtype=torch.float16, device=device)
-    ft_per_point_count = torch.zeros((len(points), 1), dtype=torch.float16, device=device)
+    num_hits_per_point = torch.zeros((len(points), 1), dtype=torch.float16, device=device)
     
-    print("Extracting features (Chunked NN)...")
+    print("Extracting features...")
     for idx in tqdm(range(len(batched_imgs))):
         
         current_depth = depth[idx].to(device).flatten().unsqueeze(1)
         valid_mask = current_depth.squeeze() > 0
-        if valid_mask.sum() == 0: continue
+        if valid_mask.sum() == 0:
+            print("No valid pixels(???)")
+            continue
             
         xy_depth_valid = torch.cat((
             pixel_coords_flat[valid_mask], 
@@ -137,15 +151,14 @@ def get_features_per_point(
         # Extract DINO
         img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
         
-        
-        pilimg = tpl(img_rgb.squeeze(0))
-        from datetime import datetime
-        pilimg.save(f"LATESTRENDER{datetime.now()}.png")        
+        # UNCOMMENT TO SAVE VISUALIZATion RENDER
+        # pilimg = tpl(img_rgb.squeeze(0))
+        # from datetime import datetime
+        # pilimg.save(f"LATESTRENDER{datetime.now()}.png")        
         
         
         dino_feat = get_dino_features(device, dino_model, img_rgb)
         
-        # Flatten
         dino_flat = dino_feat.flatten(2).squeeze(0).T 
         features_valid = dino_flat[valid_mask]
 
@@ -161,13 +174,13 @@ def get_features_per_point(
             closest = torch.argmin(dists, dim=1)
             
             ft_per_point.index_add_(0, closest, features_valid[i:end])
-            ft_per_point_count.index_add_(0, closest, torch.ones_like(closest, dtype=torch.float16).unsqueeze(1))
+            num_hits_per_point.index_add_(0, closest, torch.ones_like(closest, dtype=torch.float16).unsqueeze(1))
             
         del world_coords, features_valid, dino_feat, img_rgb, current_depth
 
     # Average
-    mask = (ft_per_point_count > 0).squeeze()
-    ft_per_point[mask] /= ft_per_point_count[mask]
+    mask = (num_hits_per_point > 0).squeeze()
+    ft_per_point[mask] /= num_hits_per_point[mask]
     ft_per_point = torch.nan_to_num(ft_per_point)
     
     # # Fill remaining holes (if any) with nearest valid feature
