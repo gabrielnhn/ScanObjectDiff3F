@@ -5,3 +5,7 @@ second_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa
 dino only times dino score
 43678 / 50000  ==  0.87356
 
+march 9
+dinov3 tiny, no dino score
+38885 / 50000  ==  0.7777
+
