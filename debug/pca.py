@@ -7,7 +7,7 @@ from pytorch3d.io import IO
 def load_data(ply_path, feat_path):
     print(f"\nLoading features from {feat_path}...")
     try:
-        features = torch.load(feat_path, map_location='cpu').squeeze()
+        features = torch.load(feat_path, map_location='cpu', weights_only=True).squeeze()
     except FileNotFoundError:
         print(f"Feature file {feat_path} not found.")
         return None, None

@@ -13,8 +13,8 @@ from pytorch3d.renderer import (
     AlphaCompositor,
     PerspectiveCameras
 )
-# from dino2 import get_dino_features_and_score
-from dino3 import get_dino_features_and_score
+from dino2 import get_dino_features_and_score
+# from dino3 import get_dino_features_and_score
 import torchvision
 TPL = torchvision.transforms.ToPILImage
 tpl = TPL()
@@ -23,6 +23,7 @@ from torchvision.models import ResNet50_Weights
 imagenet_classes = ResNet50_Weights.IMAGENET1K_V1.meta["categories"]
 
 FEATURE_DIMS = 768 
+# FEATURE_DIMS = 384 
 
 
 from datetime import datetime
@@ -119,6 +120,7 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     #     compositor=AlphaCompositor(background_color=(1, 1, 1)) # White Background
     # )
     renderer = CircleRenderer(background_color=(1,1,1)).to(device)
+    # renderer = CircleRenderer(background_color=(0,0,0)).to(device)
 
     pcd_batch = pcd.extend(num_actual_views)
 

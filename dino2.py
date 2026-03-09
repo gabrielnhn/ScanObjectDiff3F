@@ -9,10 +9,7 @@ def hook_fn(module, input, output):
     hook_features['tokens'] = output
 
 def init_dino(device):
-    
     model = torch.hub.load("facebookresearch/dinov2", "dinov2_vitb14_lc")
-    # model = torch.hub.load("facebookresearch/dinov3", 'dinov3_convnext_tiny', weights="weights/dinov3_convnext_tiny_pretrain_lvd1689m-21b726bb.pth")
-    
     model = model.to(device).eval()
     
     # attach hook to the backbone final LayerNorm
@@ -21,7 +18,7 @@ def init_dino(device):
     return model
 
 @torch.no_grad()
-def get_dino_features_and_score(device, model, img_rgb, score=True):
+def get_dino_features_and_score(device, model, img_rgb, score=None):
     transform = tfs.Compose([
         tfs.Resize((518, 518), antialias=True),
         tfs.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
@@ -31,13 +28,11 @@ def get_dino_features_and_score(device, model, img_rgb, score=True):
     # forward pass (triggers hook!)
     logits = model(img_dino)
     
+    # Semantic View Score via MOST confident guess.
+    probs = F.softmax(logits, dim=-1)
     
-    if score:
-        # Semantic View Score via MOST confident guess.
-        probs = F.softmax(logits, dim=-1)
-        
-        max_prob, class_idx = probs.max(dim=-1)
-        view_score = max_prob.item()
+    max_prob, class_idx = probs.max(dim=-1)
+    view_score = max_prob.item()
     
     # view_score = probs.max(dim=-1).values.item()
     
@@ -60,7 +55,7 @@ def get_dino_features_and_score(device, model, img_rgb, score=True):
     
     features = F.normalize(features, dim=1, p=2, eps=1e-6)
     
-    if not score:
-        view_score = 1
-        class_idx = 0
+    view_score = 1
+    class_idx = 0
+    
     return features.half(), view_score, class_idx

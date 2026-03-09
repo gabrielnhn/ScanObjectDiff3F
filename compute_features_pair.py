@@ -9,8 +9,8 @@ import numpy as np
 from diff3f.features_dinoonly import get_features_per_point
 from pc_utils import load_scanobjectnn_to_pytorch3d, save_pointcloud_with_features
 # from diff3f.diffusion import init_pipe
-# from dino2 import init_dino
-from dino3 import init_dino
+from dino2 import init_dino
+# from dino3 import init_dino
 
 
 device = torch.device('cuda:0')
