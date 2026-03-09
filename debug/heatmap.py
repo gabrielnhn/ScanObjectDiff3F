@@ -13,8 +13,8 @@ target_pt = "pointcloud2_with_features.pt"
 device = 'cuda'
 
 print("Loading...")
-f_source = torch.load(source_pt).to(device)
-f_target = torch.load(target_pt).to(device)
+f_source = torch.load(source_pt).to(device).float()
+f_target = torch.load(target_pt).to(device).float()
 pcd_source = trimesh.load(source_ply)
 pcd_target = trimesh.load(target_ply)
 
@@ -22,9 +22,10 @@ pcd_target = trimesh.load(target_ply)
 f_source = torch.nn.functional.normalize(f_source, dim=-1)
 f_target = torch.nn.functional.normalize(f_target, dim=-1)
 
-# Pick a point index manually (e.g., point 1000) or random
-# Try to pick a point on the armrest or seat
-query_idx = 1000 
+# Find a VALID point to query (don't just guess 1000, it might be an empty point)
+valid_indices = torch.where(torch.norm(f_source, dim=-1) > 0)[0]
+query_idx = valid_indices[len(valid_indices) // 2].item() # Pick a guaranteed valid point
+
 query_feat = f_source[query_idx].unsqueeze(0) # (1, D)
 
 print(f"Visualizing similarity to Source Point {query_idx}...")

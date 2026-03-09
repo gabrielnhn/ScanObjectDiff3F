@@ -104,8 +104,8 @@ def run_transfer():
     print("Loading Data...")
     
     # Load features to GPU directly
-    f_source = torch.load(source_feat_path, map_location=device).squeeze()
-    f_target = torch.load(target_feat_path, map_location=device).squeeze()
+    f_source = torch.load(source_feat_path, map_location=device).squeeze().float()
+    f_target = torch.load(target_feat_path, map_location=device).squeeze().float()
     
     # Load Geometry (for saving later)
     pcd_source = IO().load_pointcloud(source_ply_path)
@@ -126,8 +126,11 @@ def run_transfer():
     print(f"   Valid Part Points:      {len(labels_source_clean)} (Background removed)")
 
     # Normalize first
-    f_source_norm = torch.nn.functional.normalize(f_source_clean, dim=-1)
-    f_target_norm = torch.nn.functional.normalize(f_target, dim=-1)
+    # f_source_norm = torch.nn.functional.normalize(f_source_clean, dim=-1)
+    # f_target_norm = torch.nn.functional.normalize(f_target, dim=-1)
+    f_source_norm = torch.nn.functional.normalize(f_source_clean, dim=-1, eps=1e-6)
+    f_target_norm = torch.nn.functional.normalize(f_target, dim=-1, eps=1e-6)
+
     
     # Run Chunked Matching
     best_match_indices = find_correspondences_chunked(f_source_norm, f_target_norm, chunk_size=5000)
