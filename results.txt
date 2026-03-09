@@ -1,0 +1,7 @@
+march 9th 
+first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
+second_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
+
+dino only times dino score
+43678 / 50000  ==  0.87356
+
