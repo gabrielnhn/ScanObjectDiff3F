@@ -11,7 +11,7 @@ ipython3
 ```
 
 (Paste into ipython terminal):
-```python
+<!-- ```python
 import sys
 import torch
 pyt_version_str=torch.__version__.split("+")[0].replace(".", "")
@@ -21,7 +21,27 @@ version_str="".join([
     f"_pyt{pyt_version_str}"
 ])
 !pip install iopath
-!pip install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/{version_str}/download.html
+!pip install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/{version_str}/download.html --force-reinstall
+``` -->
+```python
+import sys
+import torch
+
+# Ensure you are on torch 2.4.0
+print(f"Current PyTorch version: {torch.__version__}")
+
+pyt_version_str = torch.__version__.split("+")[0].replace(".", "")
+version_str = "".join([
+    f"py3{sys.version_info.minor}_cu",
+    torch.version.cuda.replace(".",""),
+    f"_pyt{pyt_version_str}"
+])
+
+# Install dependencies normally from PyPI
+!pip install fvcore iopath
+
+# Install PyTorch3D from the specific wheel link, ignoring PyPI, BUT skipping dependencies
+!pip install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/{version_str}/download.html --force-reinstall --no-deps
 ```
 
 Back to normal shell terminal

@@ -13,7 +13,8 @@ from pytorch3d.renderer import (
     AlphaCompositor,
     PerspectiveCameras
 )
-from dino2 import get_dino_features_and_score
+# from dino2 import get_dino_features_and_score
+from dino3 import get_dino_features_and_score
 import torchvision
 TPL = torchvision.transforms.ToPILImage
 tpl = TPL()
@@ -197,7 +198,9 @@ def get_features_per_point(
         img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
         
         # dino_feat = get_dino_features(device, dino_model, img_rgb)
-        dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb)
+        
+        # dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb)
+        dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb, score=False)
         
         
         class_str = imagenet_classes[class_idx]
