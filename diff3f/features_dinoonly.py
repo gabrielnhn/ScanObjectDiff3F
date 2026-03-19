@@ -163,8 +163,9 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
 
 def get_features_per_point(
     device, dino_model, pcd, 
+    USE_SCORE,
     num_views=50, H=512, W=512, tolerance=0.01, 
-    points=None, bq=False 
+    points=None, bq=False,
 ):
     t1 = time()
     if points is None: points = pcd.points_padded()[0]
@@ -202,7 +203,7 @@ def get_features_per_point(
         # dino_feat = get_dino_features(device, dino_model, img_rgb)
         
         # dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb)
-        dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb, score=False)
+        dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb, score=USE_SCORE)
         
         
         class_str = imagenet_classes[class_idx]
