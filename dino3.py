@@ -19,19 +19,19 @@ def get_dino_features_and_score(device, model, img_rgb, score=False):
     ])
     img_dino = transform(img_rgb)
     
-    # 1. Direct ViT Extraction (Mirrors DINOv2 exactly)
-    # This automatically grabs the final layer's normalized patch tokens, skipping the CLS token.
-    features = model.get_intermediate_layers(img_dino, n=1)[0]
+    # THE SECRET SAUCE: Grab the last 4 layers
+    layers = model.get_intermediate_layers(img_dino, n=4)
     
-    # 2. Reshape and Interpolate
+    # THE MEMORY SAVER: Average them instead of concatenating!
+    # This blends the features but keeps the dimension at exactly 768.
+    features = torch.stack(layers).mean(dim=0)
+    
     B, N, Dim = features.shape
-    
-    # EXACT MATH: 512 resolution / 16 patch size = 32 patches
-    # (If you upgrade to vitb14, change this to 518/14 = 37 like your v2 code)
     h_patch, w_patch = 32, 32 
     
     features = features.reshape(B, h_patch, w_patch, Dim).permute(0, 3, 1, 2)
     
+    # Now this is only interpolating 768 channels, saving ~2.5 GB of VRAM
     features = F.interpolate(
         features.float(), 
         size=img_rgb.shape[-2:], 
@@ -39,7 +39,6 @@ def get_dino_features_and_score(device, model, img_rgb, score=False):
         align_corners=False
     )
     
-    # 3. Safe Normalize
     features = F.normalize(features, dim=1, p=2, eps=1e-6)
     
     view_score = 1.0
