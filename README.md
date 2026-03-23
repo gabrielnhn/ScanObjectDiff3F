@@ -51,8 +51,15 @@ pip uninstall xformers
 pip install accelerate==0.24.0
 pip install plyfile
 pip install trimesh --no-deps --force-reinstall
+pip install git+https://github.com/tencent-ailab/IP-Adapter.git
 ```
 
+Download IP adapter models, save them in ipmodels/
+
+https://huggingface.co/h94/IP-Adapter/tree/main/models
+especially
+* models/ip-adapter_sd15.bin
+* models/image_encoder/
 
 Dataset:
 Download from https://hkust-vgd.ust.hk/scanobjectnn/
