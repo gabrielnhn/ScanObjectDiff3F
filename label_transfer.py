@@ -6,13 +6,13 @@ from pytorch3d.io import IO
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-source_ply_path = "pointcloud1_with_features.ply"
-source_feat_path = "pointcloud1_with_features.pt"
-source_lbl_path  = "pointcloud1_with_features.npy"
+# source_ply_path = "pointcloud1_with_features.ply"
+# source_feat_path = "pointcloud1_with_features.pt"
+# source_lbl_path  = "pointcloud1_with_features.npy"
 
-target_ply_path = "pointcloud2_with_features.ply"
-target_feat_path = "pointcloud2_with_features.pt"
-target_lbl_path = "pointcloud2_with_features.npy"
+# target_ply_path = "pointcloud2_with_features.ply"
+# target_feat_path = "pointcloud2_with_features.pt"
+# target_lbl_path = "pointcloud2_with_features.npy"
 
 def save_ply_with_colors(points, colors, filename):
     if colors.max() <= 1.0 and colors.max() > 0:

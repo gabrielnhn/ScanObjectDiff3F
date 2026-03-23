@@ -34,7 +34,7 @@ def get_dino_features_and_score(device, model, img_rgb, score=None):
     max_prob, class_idx = probs.max(dim=-1)
     view_score = max_prob.item()
     
-    # view_score = probs.max(dim=-1).values.item()
+    view_score = probs.max(dim=-1).values.item()
     
     # retrieve the Intercepted Patch Features
     # Shape is (Batch, Tokens, Dim). Token 0 is the [CLS] token, Tokens 1+ are the patches.
@@ -55,7 +55,7 @@ def get_dino_features_and_score(device, model, img_rgb, score=None):
     
     features = F.normalize(features, dim=1, p=2, eps=1e-6)
     
-    view_score = 1
-    class_idx = 0
+    # view_score = 1
+    # class_idx = 0
     
     return features.half(), view_score, class_idx

@@ -2,28 +2,24 @@ import os
 import csv
 from itertools import permutations
 import torch
-from label_transfer import run_transfer # Imports your modified function!
-
+from label_transfer import run_transfer 
 # --- CONFIG ---
-RESULTS_DIR = "pc-feature-results-nodinoscore/"
-OUTPUT_CSV = "transfer_results_nodinoscore.csv"
+RESULTS_DIR = "pc-feature-results-yesdinoscore/"
+OUTPUT_CSV = "transfer_results_yesdinoscore.csv"
 
 def get_base_names(class_dir):
     """Finds all unique object names by looking for .pt files"""
     bases = []
     for f in os.listdir(class_dir):
         if f.endswith(".pt"):
-            # Strip the extension to get the base name
             bases.append(f.replace(".pt", ""))
     return bases
 
 def main():
     print(f"Starting batch evaluation. Results will be saved to {OUTPUT_CSV}")
     
-    # Open CSV in append mode so if it crashes, you don't lose data
     with open(OUTPUT_CSV, mode='w', newline='') as csv_file:
         writer = csv.writer(csv_file)
-        # Write Header
         writer.writerow(["Class", "Source", "Target", "Exact_Accuracy", "Permutation_Accuracy"])
         
         classes = [d for d in os.listdir(RESULTS_DIR) if os.path.isdir(os.path.join(RESULTS_DIR, d))]
@@ -33,10 +29,11 @@ def main():
             bases = get_base_names(class_dir)
             
             # Generate all pairs (A->B, B->A, etc.)
-            pairs = list(permutations(bases, 2))
-            print(f"\n--- Processing Class: {cls} ({len(bases)} objects, {len(pairs)} pairs) ---")
-            
-            for source_base, target_base in pairs:
+            # pairs = list(permutations(bases, 2))
+            # print(f"\n--- Processing Class: {cls} ({len(bases)} objects, {len(pairs)} pairs) ---")
+            # for source_base, target_base in pairs:
+            source_base = "080_00003"
+            for target_base in bases:
                 print(f"  Transfer: {source_base} -> {target_base}")
                 
                 # Construct paths

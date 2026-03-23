@@ -19,11 +19,8 @@ def get_dino_features_and_score(device, model, img_rgb, score=False):
     ])
     img_dino = transform(img_rgb)
     
-    # THE SECRET SAUCE: Grab the last 4 layers
     layers = model.get_intermediate_layers(img_dino, n=4)
     
-    # THE MEMORY SAVER: Average them instead of concatenating!
-    # This blends the features but keeps the dimension at exactly 768.
     features = torch.stack(layers).mean(dim=0)
     
     B, N, Dim = features.shape
