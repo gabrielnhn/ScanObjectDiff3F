@@ -5,6 +5,10 @@ import math
 from tqdm import tqdm
 from time import time
 
+from pc_utils import load_scanobjectnn_to_pytorch3d
+import dino2
+import ip_controlnet
+
 from pytorch3d.renderer import (
     look_at_view_transform,
     PointsRasterizationSettings,
@@ -158,62 +162,19 @@ def get_diffused_depth(
         # Extract DINO features
         img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
         # dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb, score=USE_SCORE)
+    
+        output_image = ip_controlnet.run_diffusion(ip_pipe, img_rgb, current_depth)
         
         # class_str = imagenet_classes[class_idx]
         # UNCOMMENT TO SAVE VISUALIZATion RENDER
-        pilimg = tpl(img_rgb.squeeze(0))
+        # pilimg = tpl(img_rgb.squeeze(0))
+        pilimg = output_image
         
         
         # pilimg.save(f"renders/RENDER{datetime.now().hour}:{datetime.now().minute}:{datetime.now().second}-{class_str}-{dino_score}.png")        
         pilimg.save(f"diffrender/{datetime.now().hour}:{datetime.now().minute}.png")        
         # exit()
         
-        
-        
-        
-        # dino_flat = dino_feat.flatten(2).squeeze(0).T 
-        # features_valid = dino_flat[valid_mask]
-        
-        # # WEIGH FEATURES ACCORDING TO DINO SCORE
-        # features_valid = features_valid * dino_score
-        
-
-        # # Accumulate (Chunked Nearest Neighbor)
-        # chunk_size = 5000
-        # num_pixels = world_coords.shape[0]
-        
-        # for i in range(0, num_pixels, chunk_size):
-        #     end = min(i + chunk_size, num_pixels)
-            
-        #     # Find closest mesh vertex to this projected pixel
-        #     dists = torch.cdist(world_coords[i:end], points, p=2)
-        #     closest = torch.argmin(dists, dim=1)
-            
-        #     ft_per_point.index_add_(0, closest, features_valid[i:end])
-        #     num_hits_per_point.index_add_(0, closest, torch.ones_like(closest, dtype=torch.float16).unsqueeze(1))
-            
-        # del world_coords, features_valid, dino_feat, img_rgb, current_depth, dino_score, class_idx
-
-    # Average
-    # mask = (num_hits_per_point > 0).squeeze()
-    # ft_per_point[mask] /= num_hits_per_point[mask]
-    # ft_per_point = torch.nan_to_num(ft_per_point)
-    
-    # # Fill remaining holes (if any) with nearest valid feature
-    # if (~mask).sum() > 0:
-    #     filled_indices = torch.where(mask)[0]
-    #     missing_indices = torch.where(~mask)[0]
-    #     if len(filled_indices) > 0:
-    #         print(f"Filling {len(missing_indices)} missing points via NN...")
-    #         # Process hole-filling in chunks too
-    #         chunk_size_fill = 5000
-    #         for i in range(0, len(missing_indices), chunk_size_fill):
-    #             end = min(i + chunk_size_fill, len(missing_indices))
-    #             curr_missing = missing_indices[i:end]
-    #             dists = torch.cdist(points[curr_missing], points[filled_indices], p=2)
-    #             closest = torch.argmin(dists, dim=1)
-    #             ft_per_point[curr_missing] = ft_per_point[filled_indices][closest]
-
     print(f"Time taken: {(time() - t1) / 60:.2f} min")
     
     del batched_imgs, depth, cameras
@@ -222,9 +183,7 @@ def get_diffused_depth(
     # return ft_per_point
     
 if __name__ == "__main__":
-    from pc_utils import load_scanobjectnn_to_pytorch3d
-    import dino2
-    import ip_controlnet
+
     
     first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
     device = torch.device("cuda")
@@ -236,6 +195,5 @@ if __name__ == "__main__":
                        first_pcd,
                        True,
                        ip_controlnet.init_diffusion(),
-                       
                        )
     

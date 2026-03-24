@@ -51,8 +51,11 @@ def init_diffusion():
 def run_diffusion(pipe, input_image, depth_map):
     print("Loading IP-Adapter Image Encoder to GPU...")
     # Initialize Tencent's IPAdapter locally
-    ip_model = IPAdapter(pipe, image_encoder_path, ip_ckpt, device)
-    
+    ip_model = IPAdapter(sd_pipe=pipe,
+                         image_encoder_path=image_encoder_path,
+                         ip_ckpt=ip_ckpt,
+                         device=device)
+
     print("Generating Image...")
     # Generate
     image = ip_model.generate(
