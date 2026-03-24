@@ -8,13 +8,12 @@ from ip_adapter import IPAdapter
 
 base_model_path = "runwayml/stable-diffusion-v1-5"
 vae_model_path = "stabilityai/sd-vae-ft-mse"
-image_encoder_path = "models/image_encoder/"
-ip_ckpt = "models/ip-adapter_sd15.bin"
+image_encoder_path = "ipmodels/image_encoder/"
+ip_ckpt = "ipmodels/ip-adapter_sd15.bin"
 device = "cuda"
 
-def init_pipe():
+def init_diffusion():
     # https://github.com/tencent-ailab/IP-Adapter/blob/main/ip_adapter_controlnet_demo_new.ipynb
-    
     
     noise_scheduler = DDIMScheduler(
         num_train_timesteps=1000,
@@ -29,7 +28,11 @@ def init_pipe():
     
     # load controlnet
     controlnet_model_path = "lllyasviel/control_v11f1p_sd15_depth"
-    controlnet = ControlNetModel.from_pretrained(controlnet_model_path, torch_dtype=torch.float16)
+    controlnet = ControlNetModel.from_pretrained(
+        controlnet_model_path,
+        torch_dtype=torch.float16,
+        use_safetensors=True
+        )
     # load SD pipeline
     pipe = StableDiffusionControlNetPipeline.from_pretrained(
         base_model_path,
@@ -51,7 +54,6 @@ def run_diffusion(
     ip_model, 
     input_image,
     depth_map,
-    num_images_per_prompt=1,
 ):
     image = ip_model.generate(
         pil_image=input_image,

@@ -58,7 +58,7 @@ Download IP adapter models, save them in ipmodels/
 
 https://huggingface.co/h94/IP-Adapter/tree/main/models
 especially
-* models/ip-adapter_sd15.bin
+* models/ip-adapter_sd15.safetensors
 * models/image_encoder/
 
 Dataset:
