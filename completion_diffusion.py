@@ -118,11 +118,13 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     del fragments, pcd_batch #, pt_features
     return images, depth, cameras
 
-def get_features_per_point(
+def get_diffused_depth(
     device, dino_model, pcd, 
     USE_SCORE,
-    num_views=50, H=512, W=512, tolerance=0.01, 
-    points=None, bq=False,
+    ip_pipe,
+    num_views=50, H=512, W=512, 
+    points=None,
+    
 ):
     t1 = time()
     if points is None: points = pcd.points_padded()[0]
@@ -136,7 +138,6 @@ def get_features_per_point(
     ft_per_point = torch.zeros((len(points), FEATURE_DIMS), dtype=torch.float16, device=device)
     num_hits_per_point = torch.zeros((len(points), 1), dtype=torch.float16, device=device)
     
-    print("Extracting features...")
     for idx in tqdm(range(len(batched_imgs))):
         
         current_depth = depth[idx].to(device).flatten().unsqueeze(1)
@@ -156,51 +157,47 @@ def get_features_per_point(
 
         # Extract DINO features
         img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
+        # dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb, score=USE_SCORE)
         
-        # dino_feat = get_dino_features(device, dino_model, img_rgb)
-        
-        # dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb)
-        dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb, score=USE_SCORE)
-        
-        
-        class_str = imagenet_classes[class_idx]
+        # class_str = imagenet_classes[class_idx]
         # UNCOMMENT TO SAVE VISUALIZATion RENDER
         pilimg = tpl(img_rgb.squeeze(0))
         
         
-        pilimg.save(f"renders/RENDER{datetime.now().hour}:{datetime.now().minute}:{datetime.now().second}-{class_str}-{dino_score}.png")        
+        # pilimg.save(f"renders/RENDER{datetime.now().hour}:{datetime.now().minute}:{datetime.now().second}-{class_str}-{dino_score}.png")        
+        pilimg.save(f"diffrender/{datetime.now().hour}:{datetime.now().minute}.png")        
         # exit()
         
         
         
         
-        dino_flat = dino_feat.flatten(2).squeeze(0).T 
-        features_valid = dino_flat[valid_mask]
+        # dino_flat = dino_feat.flatten(2).squeeze(0).T 
+        # features_valid = dino_flat[valid_mask]
         
-        # WEIGH FEATURES ACCORDING TO DINO SCORE
-        features_valid = features_valid * dino_score
+        # # WEIGH FEATURES ACCORDING TO DINO SCORE
+        # features_valid = features_valid * dino_score
         
 
-        # Accumulate (Chunked Nearest Neighbor)
-        chunk_size = 5000
-        num_pixels = world_coords.shape[0]
+        # # Accumulate (Chunked Nearest Neighbor)
+        # chunk_size = 5000
+        # num_pixels = world_coords.shape[0]
         
-        for i in range(0, num_pixels, chunk_size):
-            end = min(i + chunk_size, num_pixels)
+        # for i in range(0, num_pixels, chunk_size):
+        #     end = min(i + chunk_size, num_pixels)
             
-            # Find closest mesh vertex to this projected pixel
-            dists = torch.cdist(world_coords[i:end], points, p=2)
-            closest = torch.argmin(dists, dim=1)
+        #     # Find closest mesh vertex to this projected pixel
+        #     dists = torch.cdist(world_coords[i:end], points, p=2)
+        #     closest = torch.argmin(dists, dim=1)
             
-            ft_per_point.index_add_(0, closest, features_valid[i:end])
-            num_hits_per_point.index_add_(0, closest, torch.ones_like(closest, dtype=torch.float16).unsqueeze(1))
+        #     ft_per_point.index_add_(0, closest, features_valid[i:end])
+        #     num_hits_per_point.index_add_(0, closest, torch.ones_like(closest, dtype=torch.float16).unsqueeze(1))
             
-        del world_coords, features_valid, dino_feat, img_rgb, current_depth, dino_score, class_idx
+        # del world_coords, features_valid, dino_feat, img_rgb, current_depth, dino_score, class_idx
 
     # Average
-    mask = (num_hits_per_point > 0).squeeze()
-    ft_per_point[mask] /= num_hits_per_point[mask]
-    ft_per_point = torch.nan_to_num(ft_per_point)
+    # mask = (num_hits_per_point > 0).squeeze()
+    # ft_per_point[mask] /= num_hits_per_point[mask]
+    # ft_per_point = torch.nan_to_num(ft_per_point)
     
     # # Fill remaining holes (if any) with nearest valid feature
     # if (~mask).sum() > 0:
@@ -222,4 +219,23 @@ def get_features_per_point(
     del batched_imgs, depth, cameras
     torch.cuda.empty_cache()
     
-    return ft_per_point
+    # return ft_per_point
+    
+if __name__ == "__main__":
+    from pc_utils import load_scanobjectnn_to_pytorch3d
+    import dino2
+    import ip_controlnet
+    
+    first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
+
+
+    first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(first_FILE, device)
+    print("computing features for first (pillow a)...")
+    get_diffused_depth(torch.device("cuda"),
+                       dino2.init_dino(),
+                       first_pcd,
+                       True,
+                       ip_controlnet.init_diffusion(),
+                       
+                       )
+    

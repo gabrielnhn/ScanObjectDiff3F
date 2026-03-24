@@ -63,3 +63,8 @@ def run_diffusion(
         seed=42
     )
     return image
+
+
+# if __name__ == "__main__":
+    
+    
