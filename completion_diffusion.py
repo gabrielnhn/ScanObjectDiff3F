@@ -139,9 +139,13 @@ def get_diffused_depth(
     ndc_grid = get_grid(H, W, device)
     pixel_coords_flat = ndc_grid.reshape(-1, 2) 
 
-    ft_per_point = torch.zeros((len(points), FEATURE_DIMS), dtype=torch.float16, device=device)
-    num_hits_per_point = torch.zeros((len(points), 1), dtype=torch.float16, device=device)
+    # SELECT BEST POINT OF VIEW!!!
     
+
+
+
+
+    # DIFFUSION STEP 
     for idx in tqdm(range(len(batched_imgs))):
         
         current_depth = depth[idx].to(device).flatten().unsqueeze(1)
@@ -159,32 +163,57 @@ def get_diffused_depth(
             xy_depth_valid, world_coordinates=True, from_ndc=True
         ).to(device)
 
-        # Extract DINO features
-        img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
-        # dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb, score=USE_SCORE)
-    
-        output_image = ip_controlnet.run_diffusion(ip_pipe, img_rgb, current_depth)
+
+        img_tensor = batched_imgs[idx].permute(2, 0, 1) 
+        input_image_pil = tpl(img_tensor)
+
+        depth_2d = depth[idx].clone() # Shape: (H, W)
+        valid_mask_2d = depth_2d > 0
         
-        # class_str = imagenet_classes[class_idx]
-        # UNCOMMENT TO SAVE VISUALIZATion RENDER
-        # pilimg = tpl(img_rgb.squeeze(0))
-        pilimg = output_image
+        if valid_mask_2d.sum() > 0:
+            min_depth = depth_2d[valid_mask_2d].min()
+            max_depth = depth_2d[valid_mask_2d].max()
+            
+            if max_depth > min_depth:
+                # Normalize to [0, 1]
+                depth_norm = (depth_2d - min_depth) / (max_depth - min_depth)
+                # Invert for MiDaS style: Closer = 1.0 (White), Farther = 0.0 (Black)
+                depth_norm = 1.0 - depth_norm
+            else:
+                depth_norm = torch.ones_like(depth_2d)
+                
+            # Set background to absolute black
+            depth_norm[~valid_mask_2d] = 0.0
+        else:
+            depth_norm = torch.zeros_like(depth_2d)
+
+        # Convert to 3-Channel uint8 Numpy array
+        depth_uint8 = (depth_norm * 255).cpu().numpy().astype(np.uint8)
+        depth_rgb = np.stack([depth_uint8] * 3, axis=-1)
         
+        # Convert to PIL Image
+        from PIL import Image
+        controlnet_depth_pil = Image.fromarray(depth_rgb)
+
+
+        # RUN DIFFUSION
+        output_image = ip_controlnet.run_diffusion(
+            ip_pipe, 
+            input_image_pil,       
+            controlnet_depth_pil   
+        )
         
-        # pilimg.save(f"renders/RENDER{datetime.now().hour}:{datetime.now().minute}:{datetime.now().second}-{class_str}-{dino_score}.png")        
-        pilimg.save(f"diffrender/{datetime.now().hour}:{datetime.now().minute}.png")        
-        # exit()
+        # Save output (Added the idx so it doesn't overwrite itself in the loop!)
+        output_image.save(f"diffrender/{datetime.now().hour}:{datetime.now().minute}_{idx}.png")
         
     print(f"Time taken: {(time() - t1) / 60:.2f} min")
     
     del batched_imgs, depth, cameras
     torch.cuda.empty_cache()
     
-    # return ft_per_point
     
 if __name__ == "__main__":
 
-    
     first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
     device = torch.device("cuda")
 
