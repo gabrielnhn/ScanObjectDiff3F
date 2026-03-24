@@ -227,12 +227,12 @@ if __name__ == "__main__":
     import ip_controlnet
     
     first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
-
+    device = torch.device("cuda")
 
     first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(first_FILE, device)
     print("computing features for first (pillow a)...")
-    get_diffused_depth(torch.device("cuda"),
-                       dino2.init_dino(),
+    get_diffused_depth(device,
+                       dino2.init_dino(device),
                        first_pcd,
                        True,
                        ip_controlnet.init_diffusion(),
