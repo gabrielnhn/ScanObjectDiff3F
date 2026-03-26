@@ -6,8 +6,8 @@ from tqdm import tqdm
 from time import time
 
 from pc_utils import load_scanobjectnn_to_pytorch3d
-import dino2
 import ip_controlnet
+import clip
 
 from pytorch3d.renderer import (
     look_at_view_transform,
@@ -16,24 +16,19 @@ from pytorch3d.renderer import (
     AlphaCompositor,
     PerspectiveCameras
 )
-from dino2 import get_dino_features_and_score
-# from dino3 import get_dino_features_and_score
 import torchvision
 TPL = torchvision.transforms.ToPILImage
 tpl = TPL()
 
-from torchvision.models import ResNet50_Weights
-imagenet_classes = ResNet50_Weights.IMAGENET1K_V1.meta["categories"]
 
-FEATURE_DIMS = 768 
-# FEATURE_DIMS = 384 
-
+device = torch.device("cuda")
 
 from datetime import datetime
 import os
 if not os.path.isdir("renders"):
     os.mkdir("renders")
-
+if not os.path.isdir("diffrender"):
+    os.mkdir("diffrender")    
 
 import torch
 import torch.nn as nn
@@ -123,15 +118,12 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     return images, depth, cameras
 
 def get_diffused_depth(
-    device, dino_model, pcd, 
-    USE_SCORE,
-    ip_pipe,
+    pcd, 
     num_views=50, H=512, W=512, 
-    points=None,
-    
 ):
     t1 = time()
-    if points is None: points = pcd.points_padded()[0]
+    # if points is None: 
+    points = pcd.points_padded()[0]
 
     print("Rendering...")
     batched_imgs, depth, cameras = render_with_pytorch3d(device, pcd, num_views, points, H, W)
@@ -140,24 +132,29 @@ def get_diffused_depth(
     pixel_coords_flat = ndc_grid.reshape(-1, 2) 
 
     # SELECT BEST POINT OF VIEW!!!
+    semanticity_model, semanticity_processor = clip.init_clip()
+
     best_pov_idx = -1
     best_dino_score = 0
     for idx in tqdm(range(len(batched_imgs)), desc="Finding best POV"):
         img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
-        dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb, score=USE_SCORE)
+        # dino_feat, dino_score, class_idx = get_dino_features_and_score(device, semanticity_model, img_rgb, score=USE_SCORE)
+        # del dino_feat, img_rgb, class_idx
+        semanticity_score = clip.clip_score(semanticity_model, semanticity_processor, img_rgb)
         
-        if dino_score > best_dino_score:
-            best_dino_score = dino_score
+        if semanticity_score > best_dino_score:
+            best_dino_score = semanticity_score
             best_pov_idx = idx
-        del dino_feat, img_rgb, class_idx
+            
+        del semanticity_score
     
     best_pov_image = batched_imgs[best_pov_idx].permute(2, 0, 1)
     best_pov_image = tpl(best_pov_image)
+    del semanticity_model, semanticity_processor
 
-    if not os.path.exists("diffrender"):
-        os.mkdir("diffrender")    
     best_pov_image.save(f"diffrender/REFERENCE.png")
     
+    ip_pipe = ip_controlnet.init_diffusion()
 
     # DIFFUSION STEP 
     for idx in tqdm(range(len(batched_imgs))):
@@ -177,10 +174,6 @@ def get_diffused_depth(
             xy_depth_valid, world_coordinates=True, from_ndc=True
         ).to(device)
 
-
-        # img_tensor = batched_imgs[idx].permute(2, 0, 1) 
-        # input_image_pil = tpl(img_tensor)
-
         depth_2d = depth[idx].clone() # Shape: (H, W)
         valid_mask_2d = depth_2d > 0
         
@@ -196,19 +189,17 @@ def get_diffused_depth(
             else:
                 depth_norm = torch.ones_like(depth_2d)
                 
-            # Set background to absolute black
             depth_norm[~valid_mask_2d] = 0.0
         else:
             depth_norm = torch.zeros_like(depth_2d)
 
-        # Convert to 3-Channel uint8 Numpy array
         depth_uint8 = (depth_norm * 255).cpu().numpy().astype(np.uint8)
         depth_rgb = np.stack([depth_uint8] * 3, axis=-1)
         
-        # Convert to PIL Image
         from PIL import Image
         controlnet_depth_pil = Image.fromarray(depth_rgb)
-        controlnet_depth_pil.save(f"diffrender/{datetime.now().hour}:{datetime.now().minute}_{idx}d.png")
+        now = str(datetime.now()).replace(":", "-").replace(".", "-")
+        controlnet_depth_pil.save(f"diffrender/a{now}.png")
 
 
         # RUN DIFFUSION
@@ -221,7 +212,7 @@ def get_diffused_depth(
         )
         
         # Save output (Added the idx so it doesn't overwrite itself in the loop!)
-        output_image.save(f"diffrender/{datetime.now().hour}:{datetime.now().minute}_{idx}.png")
+        output_image.save(f"diffrender/d{now}.png")
         
     print(f"Time taken: {(time() - t1) / 60:.2f} min")
     
@@ -230,16 +221,13 @@ def get_diffused_depth(
     
     
 if __name__ == "__main__":
+    print("----------")
+    print("----------")
+    print("----------")
 
     first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
     device = torch.device("cuda")
-
     first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(first_FILE, device)
-    print("computing features for first (pillow a)...")
-    get_diffused_depth(device,
-                       dino2.init_dino(device),
-                       first_pcd,
-                       True,
-                       ip_controlnet.init_diffusion(),
-                       )
+    print(f"Processing {first_FILE}")
+    get_diffused_depth(first_pcd)
     
