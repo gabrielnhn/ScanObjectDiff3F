@@ -199,20 +199,20 @@ def get_diffused_depth(
         from PIL import Image
         controlnet_depth_pil = Image.fromarray(depth_rgb)
         now = str(datetime.now()).replace(":", "-").replace(".", "-")
-        controlnet_depth_pil.save(f"diffrender/a{now}.png")
+        controlnet_depth_pil.save(f"diffrender/{now}a.png")
 
 
         # RUN DIFFUSION
         output_image = ip_controlnet.run_diffusion(
-            ip_pipe, 
-            # input_image_pil,       
+            ip_pipe,        
             best_pov_image,       
             controlnet_depth_pil,
-            condition_scale=0.6
+            condition_scale=0.6,
+            ip_prompt_scale=0.0,
         )
         
         # Save output (Added the idx so it doesn't overwrite itself in the loop!)
-        output_image.save(f"diffrender/d{now}.png")
+        output_image.save(f"diffrender/{now}d.png")
         
     print(f"Time taken: {(time() - t1) / 60:.2f} min")
     
