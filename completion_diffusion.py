@@ -140,9 +140,22 @@ def get_diffused_depth(
     pixel_coords_flat = ndc_grid.reshape(-1, 2) 
 
     # SELECT BEST POINT OF VIEW!!!
+    best_pov_idx = -1
+    best_dino_score = 0
+    for idx in tqdm(range(len(batched_imgs)), desc="Finding best POV"):
+        img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
+        dino_feat, dino_score, class_idx = get_dino_features_and_score(device, dino_model, img_rgb, score=USE_SCORE)
+        
+        if dino_score > best_dino_score:
+            best_dino_score = dino_score
+            best_pov_idx = idx
+        del dino_feat, img_rgb, class_idx
     
-
-
+    best_pov_image = batched_imgs[best_pov_idx].permute(2, 0, 1)
+    best_pov_image = tpl(best_pov_image)
+    
+    best_pov_image.save(f"diffrender/REFERENCE.png")
+    
 
 
     # DIFFUSION STEP 
@@ -164,8 +177,8 @@ def get_diffused_depth(
         ).to(device)
 
 
-        img_tensor = batched_imgs[idx].permute(2, 0, 1) 
-        input_image_pil = tpl(img_tensor)
+        # img_tensor = batched_imgs[idx].permute(2, 0, 1) 
+        # input_image_pil = tpl(img_tensor)
 
         depth_2d = depth[idx].clone() # Shape: (H, W)
         valid_mask_2d = depth_2d > 0
@@ -194,13 +207,16 @@ def get_diffused_depth(
         # Convert to PIL Image
         from PIL import Image
         controlnet_depth_pil = Image.fromarray(depth_rgb)
+        controlnet_depth_pil.save(f"diffrender/{datetime.now().hour}:{datetime.now().minute}_{idx}d.png")
 
 
         # RUN DIFFUSION
         output_image = ip_controlnet.run_diffusion(
             ip_pipe, 
-            input_image_pil,       
-            controlnet_depth_pil   
+            # input_image_pil,       
+            best_pov_image,       
+            controlnet_depth_pil,
+            condition_scale=0.6
         )
         
         # Save output (Added the idx so it doesn't overwrite itself in the loop!)

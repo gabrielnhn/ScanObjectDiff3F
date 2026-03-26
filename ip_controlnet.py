@@ -48,7 +48,7 @@ def init_diffusion():
     return pipe
 
 
-def run_diffusion(pipe, input_image, depth_map):
+def run_diffusion(pipe, input_image, depth_map, condition_scale=1.0):
     print("Loading IP-Adapter Image Encoder to GPU...")
     # Initialize Tencent's IPAdapter locally
     ip_model = IPAdapter(sd_pipe=pipe,
@@ -61,11 +61,13 @@ def run_diffusion(pipe, input_image, depth_map):
     image = ip_model.generate(
         pil_image=input_image,
         image=depth_map,
-        prompt="",
+        prompt="sofa, couch, pillow, behind",
+        negative_prompt="background, lowres",
         scale=1.0, # This is how strongly the IP-Adapter affects the image
         num_samples=1,
         num_inference_steps=50,
-        seed=42
+        seed=42,
+        controlnet_conditioning_scale=condition_scale,
     )[0]
     
     print("Unloading IP-Adapter from GPU...")

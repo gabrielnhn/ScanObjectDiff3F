@@ -40,16 +40,15 @@ def load_scanobjectnn_to_pytorch3d(filename, device, max_points=50000):
     positions_np, colours_np, normals_np, labels_np = load_pc_file_with_labels(filename)
 
     # 1. Safety Downsampling (Random Shuffle & Cut)
-    if len(positions_np) > max_points:
-        print(f"   -> Downsampling {len(positions_np)} to {max_points} points...")
-        # Generate random permutation
-        indices = np.random.permutation(len(positions_np))[:max_points]
+    # if len(positions_np) > max_points:
+    #     print(f"   -> Downsampling {len(positions_np)} to {max_points} points...")
+    #     # Generate random permutation
+    #     indices = np.random.permutation(len(positions_np))[:max_points]
         
-        positions_np = positions_np[indices]
-        if colours_np is not None: colours_np = colours_np[indices]
-        if normals_np is not None: normals_np = normals_np[indices]
-        if labels_np is not None: labels_np = labels_np[indices]
-
+    #     positions_np = positions_np[indices]
+    #     if colours_np is not None: colours_np = colours_np[indices]
+    #     if normals_np is not None: normals_np = normals_np[indices]
+    #     if labels_np is not None: labels_np = labels_np[indices]
     points_tensor = torch.from_numpy(positions_np).float().to(device)
     
     # Pack Features
