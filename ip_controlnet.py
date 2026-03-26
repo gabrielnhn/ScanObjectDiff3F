@@ -39,17 +39,16 @@ def init_diffusion():
         safety_checker=None
     )
     
-    pipe.enable_model_cpu_offload()
-    pipe.enable_attention_slicing()
+
     
     ip_model = IPAdapter(sd_pipe=pipe,
                          image_encoder_path=image_encoder_path,
                          ip_ckpt=ip_ckpt,
                          device=device)
-    
-    # ip_model.enable_model_cpu_offload()
-    # ip_model.enable_attention_slicing()
-    
+
+    ip_model.pipe.enable_model_cpu_offload()
+    ip_model.pipe.enable_attention_slicing()    
+        
     # return pipe
     return ip_model
 
@@ -63,8 +62,8 @@ def run_diffusion(ip_model, input_image, depth_map, condition_scale=1.0):
     image = ip_model.generate(
         pil_image=input_image,
         image=depth_map,
-        prompt="sofa, couch, pillow, behind, best quality, high quality",
-        negative_prompt="background, lowres",
+        prompt="sofa, couch, behind, png",
+        negative_prompt="background, lowres, details",
         scale=1.0, # This is how strongly the IP-Adapter affects the image
         num_samples=1,
         num_inference_steps=50,
