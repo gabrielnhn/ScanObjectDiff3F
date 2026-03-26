@@ -153,10 +153,11 @@ def get_diffused_depth(
     
     best_pov_image = batched_imgs[best_pov_idx].permute(2, 0, 1)
     best_pov_image = tpl(best_pov_image)
-    
+
+    if not os.path.exists("diffrender"):
+        os.mkdir("diffrender")    
     best_pov_image.save(f"diffrender/REFERENCE.png")
     
-
 
     # DIFFUSION STEP 
     for idx in tqdm(range(len(batched_imgs))):

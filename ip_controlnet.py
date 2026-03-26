@@ -12,7 +12,6 @@ ip_ckpt = "ipmodels/ip-adapter_sd15.bin"
 device = "cuda"
 
 def init_diffusion():
-    # 1. Standard SD 1.5 Setup
     noise_scheduler = DDIMScheduler(
         num_train_timesteps=1000,
         beta_start=0.00085,
@@ -40,28 +39,31 @@ def init_diffusion():
         safety_checker=None
     )
     
-    # 2. CPU Offloading for the main UNet/VAE
     pipe.enable_model_cpu_offload()
     pipe.enable_attention_slicing()
     
-    # Return JUST the pipeline. We don't initialize the IPAdapter yet to save VRAM.
-    return pipe
-
-
-def run_diffusion(pipe, input_image, depth_map, condition_scale=1.0):
-    print("Loading IP-Adapter Image Encoder to GPU...")
-    # Initialize Tencent's IPAdapter locally
     ip_model = IPAdapter(sd_pipe=pipe,
                          image_encoder_path=image_encoder_path,
                          ip_ckpt=ip_ckpt,
                          device=device)
+    
+    ip_model.enable_model_cpu_offload()
+    ip_model.enable_attention_slicing()
+    
+    # return pipe
+    return ip_model
 
+
+def run_diffusion(ip_model, input_image, depth_map, condition_scale=1.0):
+    print("Loading IP-Adapter Image Encoder to GPU...")
+    # Initialize Tencent's IPAdapter locally
+    
     print("Generating Image...")
     # Generate
     image = ip_model.generate(
         pil_image=input_image,
         image=depth_map,
-        prompt="sofa, couch, pillow, behind",
+        prompt="sofa, couch, pillow, behind, best quality, high quality",
         negative_prompt="background, lowres",
         scale=1.0, # This is how strongly the IP-Adapter affects the image
         num_samples=1,
@@ -70,9 +72,7 @@ def run_diffusion(pipe, input_image, depth_map, condition_scale=1.0):
         controlnet_conditioning_scale=condition_scale,
     )[0]
     
-    print("Unloading IP-Adapter from GPU...")
-    # Destroy the IPAdapter and its 2GB Image Encoder from VRAM
-    del ip_model
+    # del ip_model
     torch.cuda.empty_cache()
     
     return image
