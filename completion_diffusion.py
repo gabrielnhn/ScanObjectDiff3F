@@ -208,7 +208,7 @@ def get_diffused_depth(
             best_pov_image,       
             controlnet_depth_pil,
             condition_scale=0.6,
-            ip_prompt_scale=0.0,
+            ip_prompt_scale=0.5,
         )
         
         # Save output (Added the idx so it doesn't overwrite itself in the loop!)

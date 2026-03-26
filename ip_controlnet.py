@@ -46,8 +46,8 @@ def init_diffusion():
                          ip_ckpt=ip_ckpt,
                          device=device)
 
-    ip_model.pipe.enable_model_cpu_offload()
-    ip_model.pipe.enable_attention_slicing()    
+    # ip_model.pipe.enable_model_cpu_offload()
+    # ip_model.pipe.enable_attention_slicing()    
         
     # return pipe
     return ip_model
