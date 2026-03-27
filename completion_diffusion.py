@@ -9,6 +9,11 @@ from pc_utils import load_scanobjectnn_to_pytorch3d
 import ip_controlnet
 import clip
 
+
+CONDITION_SCALE = 1.0
+IP_PROMPT_SCALE = 1.0
+
+
 from pytorch3d.renderer import (
     look_at_view_transform,
     PointsRasterizationSettings,
@@ -207,8 +212,9 @@ def get_diffused_depth(
             ip_pipe,        
             best_pov_image,       
             controlnet_depth_pil,
-            condition_scale=0.6,
-            ip_prompt_scale=0.5,
+            condition_scale=CONDITION_SCALE,
+            # ip_prompt_scale=0.5,
+            ip_prompt_scale=IP_PROMPT_SCALE,
         )
         
         # Save output (Added the idx so it doesn't overwrite itself in the loop!)

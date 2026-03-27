@@ -64,8 +64,8 @@ def run_diffusion(ip_model, input_image, depth_map,
     image = ip_model.generate(
         pil_image=input_image,
         image=depth_map,
-        prompt="sofa, couch, behind, png, white background",
-        negative_prompt="background, lowres, details",
+        prompt="the back of sofa, back of a couch, png, white background",
+        negative_prompt="background, lowres, details, facing viewer",
         scale=ip_prompt_scale, # how strongly IP-Adapter affects image
         num_samples=1,
         num_inference_steps=50,
