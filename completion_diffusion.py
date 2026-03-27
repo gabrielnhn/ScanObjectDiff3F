@@ -35,11 +35,7 @@ import os
 if not os.path.isdir("renders"):
     os.mkdir("renders")
     
-renders_dir = os.path.join("renders",
-    f"im2im cond-{CONDITION_SCALE} ip-{IP_PROMPT_SCALE} str-{STRENGTH_IMG2IMG} pr-{TEXT_PROMPT.replace(',', '')}")
-    
-if not os.path.isdir(renders_dir):
-    os.mkdir(renders_dir)    
+
 
 import torch
 import torch.nn as nn
@@ -129,9 +125,17 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     return images, depth, cameras
 
 def get_diffused_depth(
-    pcd, 
+    pcd,
+    path_append="",
     num_views=50, H=512, W=512, 
 ):
+    renders_dir = os.path.join("renders",
+    f"{path_append}im2im cond-{CONDITION_SCALE} ip-{IP_PROMPT_SCALE} str-{STRENGTH_IMG2IMG} pr-{TEXT_PROMPT.replace(',', '')}")
+    
+    if not os.path.isdir(renders_dir):
+        os.mkdir(renders_dir)    
+    
+    
     t1 = time()
     # if points is None: 
     points = pcd.points_padded()[0]
@@ -244,10 +248,12 @@ if __name__ == "__main__":
     print("----------")
     print("----------")
     print("----------")
-
-    first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
     device = torch.device("cuda")
-    first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(first_FILE, device)
-    print(f"Processing {first_FILE}")
-    get_diffused_depth(first_pcd)
+
+    # first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
+    pcd_file ="/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
+    
+    first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(pcd_file, device)
+    print(f"Processing {pcd_file}")
+    get_diffused_depth(first_pcd, os.path.basename(pcd_file).split(".")[0])
     
