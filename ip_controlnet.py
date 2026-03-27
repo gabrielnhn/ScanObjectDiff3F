@@ -1,5 +1,9 @@
 import torch
-from diffusers import StableDiffusionControlNetPipeline, DDIMScheduler, AutoencoderKL, ControlNetModel
+from diffusers import (
+    StableDiffusionControlNetPipeline,
+    DDIMScheduler, AutoencoderKL, ControlNetModel,
+    StableDiffusionControlNetImg2ImgPipeline
+)
 from PIL import Image
 
 # This will now natively read from the folder you dragged and dropped!
@@ -29,7 +33,7 @@ def init_diffusion():
         use_safetensors=True
     )
     
-    pipe = StableDiffusionControlNetPipeline.from_pretrained(
+    pipe = StableDiffusionControlNetImg2ImgPipeline.from_pretrained(
         base_model_path,
         controlnet=controlnet,
         torch_dtype=torch.float16,
@@ -55,7 +59,8 @@ def init_diffusion():
 
 def run_diffusion(ip_model, input_image, depth_map,
                   condition_scale,
-                  ip_prompt_scale):
+                  ip_prompt_scale,
+                  text_prompt):
     print("Loading IP-Adapter Image Encoder to GPU...")
     # Initialize Tencent's IPAdapter locally
     
@@ -64,7 +69,7 @@ def run_diffusion(ip_model, input_image, depth_map,
     image = ip_model.generate(
         pil_image=input_image,
         image=depth_map,
-        prompt="the back of sofa, back of a couch, png, white background",
+        prompt=text_prompt,
         negative_prompt="background, lowres, details, facing viewer",
         scale=ip_prompt_scale, # how strongly IP-Adapter affects image
         num_samples=1,

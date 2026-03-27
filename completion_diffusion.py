@@ -10,9 +10,9 @@ import ip_controlnet
 import clip
 
 
-CONDITION_SCALE = 1.0
+CONDITION_SCALE = 0.5
 IP_PROMPT_SCALE = 1.0
-
+TEXT_PROMPT = "the back of sofa, back of a couch, png, white background, high quality"
 
 from pytorch3d.renderer import (
     look_at_view_transform,
@@ -32,8 +32,11 @@ from datetime import datetime
 import os
 if not os.path.isdir("renders"):
     os.mkdir("renders")
-if not os.path.isdir("diffrender"):
-    os.mkdir("diffrender")    
+    
+renders_dir = os.path.join("renders", f"condition{CONDITION_SCALE}-ip{IP_PROMPT_SCALE}-PR-{TEXT_PROMPT.replace(',', '-')}")
+    
+if not os.path.isdir(renders_dir):
+    os.mkdir(renders_dir)    
 
 import torch
 import torch.nn as nn
@@ -157,7 +160,8 @@ def get_diffused_depth(
     best_pov_image = tpl(best_pov_image)
     del semanticity_model, semanticity_processor
 
-    best_pov_image.save(f"diffrender/REFERENCE.png")
+    # best_pov_image.save(f"diffrender/REFERENCE.png")
+    best_pov_image.save(os.path.join(renders_dir, "REFERENCE.png"))
     
     ip_pipe = ip_controlnet.init_diffusion()
 
@@ -204,7 +208,8 @@ def get_diffused_depth(
         from PIL import Image
         controlnet_depth_pil = Image.fromarray(depth_rgb)
         now = str(datetime.now()).replace(":", "-").replace(".", "-")
-        controlnet_depth_pil.save(f"diffrender/{now}a.png")
+        # controlnet_depth_pil.save(f"diffrender/{now}a.png")
+        controlnet_depth_pil.save(os.path.join(renders_dir, f"{now}a.png"))
 
 
         # RUN DIFFUSION
@@ -213,12 +218,13 @@ def get_diffused_depth(
             best_pov_image,       
             controlnet_depth_pil,
             condition_scale=CONDITION_SCALE,
-            # ip_prompt_scale=0.5,
             ip_prompt_scale=IP_PROMPT_SCALE,
+            text_prompt=TEXT_PROMPT,
         )
         
-        # Save output (Added the idx so it doesn't overwrite itself in the loop!)
-        output_image.save(f"diffrender/{now}d.png")
+        # output_image.save(f"diffrender/{now}d.png")
+        output_image.save(os.path.join(renders_dir, f"{now}d.png"))
+        
         
     print(f"Time taken: {(time() - t1) / 60:.2f} min")
     
