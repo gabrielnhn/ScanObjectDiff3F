@@ -57,25 +57,30 @@ def init_diffusion():
     return ip_model
 
 
-def run_diffusion(ip_model, input_image, depth_map,
+def run_diffusion(ip_model,
+                  best_reference_image,
+                  depth_map,
+                  current_pov_image,
                   condition_scale,
                   ip_prompt_scale,
-                  text_prompt):
-    print("Loading IP-Adapter Image Encoder to GPU...")
-    # Initialize Tencent's IPAdapter locally
+                  text_prompt,
+                  strength):
     
-    print("Generating Image...")
-    # Generate
     image = ip_model.generate(
-        pil_image=input_image,
-        image=depth_map,
+        pil_image=best_reference_image,
+        image=current_pov_image,
+        control_image=depth_map, 
         prompt=text_prompt,
-        negative_prompt="background, lowres, details, facing viewer",
-        scale=ip_prompt_scale, # how strongly IP-Adapter affects image
+        negative_prompt="background, lowres, details",
+        scale=ip_prompt_scale, 
+        controlnet_conditioning_scale=condition_scale,
+        # Img2Img Strength: How much noise to add to current_pov_image. 
+        # 0.0 = exact copy of input, 1.0 = completely new image. 
+        # For shape completion, 0.7 to 0.9 usually works best.
+        strength=strength,
         num_samples=1,
         num_inference_steps=50,
         seed=42,
-        controlnet_conditioning_scale=condition_scale,
     )[0]
     
     # del ip_model

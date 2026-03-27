@@ -10,9 +10,11 @@ import ip_controlnet
 import clip
 
 
-CONDITION_SCALE = 0.5
-IP_PROMPT_SCALE = 1.0
-TEXT_PROMPT = "the back of sofa, back of a couch, png, white background, high quality"
+CONDITION_SCALE = 0.4
+IP_PROMPT_SCALE = 0.75
+TEXT_PROMPT = "back of sofa, back of couch, white background, high quality, best quality"
+STRENGTH_IMG2IMG = 0.6
+
 
 from pytorch3d.renderer import (
     look_at_view_transform,
@@ -33,7 +35,8 @@ import os
 if not os.path.isdir("renders"):
     os.mkdir("renders")
     
-renders_dir = os.path.join("renders", f"condition{CONDITION_SCALE}-ip{IP_PROMPT_SCALE}-PR-{TEXT_PROMPT.replace(',', '-')}")
+renders_dir = os.path.join("renders",
+    f"im2im cond-{CONDITION_SCALE} ip-{IP_PROMPT_SCALE} str-{STRENGTH_IMG2IMG} pr-{TEXT_PROMPT.replace(',', '')}")
     
 if not os.path.isdir(renders_dir):
     os.mkdir(renders_dir)    
@@ -211,15 +214,20 @@ def get_diffused_depth(
         # controlnet_depth_pil.save(f"diffrender/{now}a.png")
         controlnet_depth_pil.save(os.path.join(renders_dir, f"{now}a.png"))
 
+        img_rgb = batched_imgs[idx].permute(2, 0, 1)
+        current_pov = tpl(img_rgb)
+        current_pov.save(os.path.join(renders_dir, f"{now}b.png"))
 
         # RUN DIFFUSION
         output_image = ip_controlnet.run_diffusion(
             ip_pipe,        
             best_pov_image,       
             controlnet_depth_pil,
+            current_pov,
             condition_scale=CONDITION_SCALE,
             ip_prompt_scale=IP_PROMPT_SCALE,
             text_prompt=TEXT_PROMPT,
+            strength=STRENGTH_IMG2IMG
         )
         
         # output_image.save(f"diffrender/{now}d.png")
