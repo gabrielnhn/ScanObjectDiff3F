@@ -76,24 +76,35 @@ def load_scanobjectnn_to_pytorch3d(filename, device, max_points=50000):
     return pcd, labels_np
 
 
-def save_pointcloud_with_features(pcd, features, filename, labels=None):
+def save_pointcloud_with_features(pcd, filename, features=None, labels=None):
     # print("FEATURES UNSQUEEZE SHAPE", features.unsqueeze(0).shape)
-    points = pcd.points_padded().to(device)
-    # features = features.unsqueeze(0).to(device)
-    pcd_copy = Pointclouds(points=points
-                        #    , features=features
-                           )
+    if isinstance(pcd, Pointclouds):
+        points = pcd.points_padded().to(device)
+    else:
+        points = pcd.to(device)
+    if points.dim() == 2:
+        points = points.unsqueeze(0)
+    
+    if features is not None:
+        features = features.to(device)
+        if features.dim() == 2:
+            features = features.unsqueeze(0)
+            
+        pcd_copy = Pointclouds(points=points, features=features)
+    else:
+        pcd_copy = Pointclouds(points=points)
     
     if not filename.endswith(".ply"):
         filename = filename.split(".")[0]
         filename = filename + ".ply"
-        
     IO().save_pointcloud(data=pcd_copy, path=filename)
-    if not filename.endswith(".pt"):
-        filename = filename.split(".")[0]
-        filename = filename + ".pt"
         
-    torch.save(features, filename)
+    if features is not None:
+        if not filename.endswith(".pt"):
+            filename = filename.split(".")[0]
+            filename = filename + ".pt"
+            
+        torch.save(features, filename)
 
     if labels is not None:
         if not filename.endswith(".npy"):

@@ -5,7 +5,7 @@ import math
 from tqdm import tqdm
 from time import time
 
-from pc_utils import load_scanobjectnn_to_pytorch3d
+from pc_utils import load_scanobjectnn_to_pytorch3d, save_pointcloud_with_features
 import ip_controlnet
 import clip
 import depth_estimation
@@ -62,6 +62,58 @@ def get_grid(H, W, device):
     y_range = torch.linspace(1, -1, H, device=device) # Y Invert
     y_grid, x_grid = torch.meshgrid(y_range, x_range, indexing='ij')
     return torch.stack((x_grid, y_grid), dim=-1)
+
+from pytorch3d.ops import knn_points
+
+def merge_and_color_pointclouds(existing_points, hallucinated_points, threshold=0.03):
+    """
+    Filters hallucinated points based on distance to existing points.
+    Returns combined points and RGB color features for visualization.
+    """
+    # device = torch.device("cuda")
+    
+    # Ensure points are 2D tensors [N, 3]
+    if existing_points.dim() == 3: existing_points = existing_points.squeeze(0)
+    if hallucinated_points.dim() == 3: hallucinated_points = hallucinated_points.squeeze(0)
+
+    # PyTorch3D knn_points expects batched inputs: [Batch, N, 3]
+    p1 = hallucinated_points.unsqueeze(0).cuda()
+    p2 = existing_points.unsqueeze(0).cuda()
+
+    # Find the single nearest neighbor in existing (p2) for each hallucinated point (p1)
+    # Note: knn_points returns SQUARED distances, so we must square our threshold!
+    dists, _, _ = knn_points(p1, p2, K=1)
+    sq_dists = dists.squeeze(0).squeeze(-1) # Shape: [num_hallucinated]
+
+    # Mask out points that are too close to the existing geometry
+    mask = sq_dists > (threshold ** 2)
+
+    hallucinated_points = hallucinated_points.cuda()
+    valid_new_points = hallucinated_points[mask]
+    
+    num_accepted = valid_new_points.shape[0]
+    print(f"Accepted {num_accepted} new points out of {hallucinated_points.shape[0]} (Threshold: {threshold})")
+
+    if num_accepted == 0:
+        print("No new points passed the distance threshold.")
+        valid_new_points = torch.empty((0, 3), device=device)
+
+    # --- COLOR ASSIGNMENT ---
+    # Colors in PyTorch3D are usually floats between 0.0 and 1.0
+    
+    # Existing points: Neutral Light Grey
+    existing_colors = torch.full_like(existing_points, 0.7) 
+    
+    # New points: Bright Green [R=0, G=1, B=0]
+    new_colors = torch.zeros_like(valid_new_points)
+    new_colors[:, 1] = 1.0 
+
+    # Combine them
+    combined_points = torch.cat([existing_points, valid_new_points], dim=0)
+    combined_colors = torch.cat([existing_colors, new_colors], dim=0)
+
+    return combined_points, combined_colors
+
 
 def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     bbox = pcd.get_bounding_boxes()
@@ -175,6 +227,7 @@ def get_diffused_depth(
     depther = depth_estimation.init_depther()
 
 
+    all_hallucinated_points = []
     # DIFFUSION STEP 
     for idx in tqdm(range(len(batched_imgs))):
         
@@ -252,6 +305,50 @@ def get_diffused_depth(
         new_depth_uint8 = (new_depth_norm * 255).byte()
         new_depth_pil = tpl(new_depth_uint8)
         new_depth_pil.save(os.path.join(renders_dir, f"{now}e.png"))
+        # --- THE NAIVE SHAPE COMPLETION BLOCK ---
+        
+        # 1. Flatten the raw MiDaS depth and your GT depth
+        new_depth_flat = new_depth_tensor.to(device).flatten()
+        gt_depth_flat = depth[idx].to(device).flatten()
+        
+        # 2. ALIGNMENT: Find scale (s) and shift (t) using overlapping pixels
+        valid_overlap = gt_depth_flat > 0
+        if valid_overlap.sum() > 10: # If we have enough overlapping points to do math
+            gt_vals = gt_depth_flat[valid_overlap]
+            est_vals = new_depth_flat[valid_overlap]
+            
+            # Least Squares: est_vals * s + t = gt_vals
+            A = torch.vstack([est_vals, torch.ones_like(est_vals)]).T
+            solution = torch.linalg.lstsq(A, gt_vals).solution
+            s, t = solution[0], solution[1]
+            
+            # Apply to the ENTIRE hallucinated depth map to snap it into metric 3D space
+            aligned_depth_flat = new_depth_flat * s + t
+        else:
+            aligned_depth_flat = new_depth_flat # Fallback
+
+        # 3. MASKING: We only want to keep the chair, not the white background.
+        # Since you prompted "white background", we just threshold the RGB image!
+        out_rgb = torch.tensor(np.array(output_image)).to(device).view(-1, 3)
+        # If the sum of R, G, B is less than 740, it's NOT pure white (foreground)
+        fg_mask = out_rgb.sum(dim=-1) < 740 
+        
+        # Keep pixels that are foreground AND have valid depth
+        valid_new_points_mask = fg_mask & (aligned_depth_flat > 0)
+        
+        if valid_new_points_mask.sum() > 0:
+            # 4. UNPROJECTION: Combine NDC X,Y with our new Aligned Z
+            xy_depth_new = torch.cat((
+                pixel_coords_flat[valid_new_points_mask], 
+                aligned_depth_flat[valid_new_points_mask].unsqueeze(1)
+            ), dim=1)
+
+            # PyTorch3D Magic!
+            world_coords_new = cameras[idx].unproject_points(
+                xy_depth_new, world_coordinates=True, from_ndc=True
+            )
+            
+            all_hallucinated_points.append(world_coords_new.cpu())
         
         
         
@@ -260,6 +357,26 @@ def get_diffused_depth(
     
     del batched_imgs, depth, cameras
     torch.cuda.empty_cache()
+    
+    print("Fusing point cloud...")
+    if len(all_hallucinated_points) > 0:
+        raw_fused_points = torch.cat(all_hallucinated_points, dim=0)
+        original_points = points.to(device)
+        
+        # 1. Filter out the noise and paint the new points green
+        final_points, final_colors = merge_and_color_pointclouds(
+            existing_points=original_points, 
+            hallucinated_points=raw_fused_points, 
+            threshold=0.03 # Tweak this! 0.03 is usually good for normalized shapes
+        )
+        
+        # 2. Save to PLY
+        save_path = os.path.join(renders_dir, "completed_shape_colored.ply")
+        save_pointcloud_with_features(final_points, save_path, features=final_colors)
+        
+        print(f"Saved completed PLY with green hallucinated points!")
+    else:
+        print("No points were generated.")
     
     
 if __name__ == "__main__":

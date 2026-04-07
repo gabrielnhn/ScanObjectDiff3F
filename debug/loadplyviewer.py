@@ -13,3 +13,4 @@ import trimesh
 
 # trimesh.load("debug_align_blue_original.ply").show()
 # trimesh.load("debug_align_red_unprojected.ply").show()
+trimesh.load("completed_shape_colored.ply").show()
