@@ -177,13 +177,62 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     del fragments, pcd_batch #, pt_features
     return images, depth, cameras
 
+def ransac_depth_alignment(gt_vals, est_vals, num_iters=1000, inlier_thresh=0.05):
+    """
+    Robustly finds Scale (s) and Shift (t) using RANSAC to ignore flying pixels and edge noise.
+    """
+    best_inliers = 0
+    best_s, best_t = 1.0, 0.0
+
+    if len(gt_vals) < 2:
+        return best_s, best_t
+
+    # RANSAC Loop
+    for _ in range(num_iters):
+        # 1. Randomly sample 2 points to draw a line
+        idx = torch.randperm(len(gt_vals), device=gt_vals.device)[:2]
+        sample_gt = gt_vals[idx]
+        sample_est = est_vals[idx]
+
+        # 2. Solve for s and t: s = (y2 - y1) / (x2 - x1)
+        denom = sample_est[0] - sample_est[1]
+        if abs(denom) < 1e-6:
+            continue
+            
+        s = (sample_gt[0] - sample_gt[1]) / denom
+        t = sample_gt[0] - s * sample_est[0]
+
+        # 3. Calculate errors for ALL points
+        pred_gt = est_vals * s + t
+        errors = torch.abs(pred_gt - gt_vals)
+
+        # 4. Count inliers (how many pixels agree with this scale/shift?)
+        inliers = (errors < inlier_thresh).sum().item()
+
+        if inliers > best_inliers:
+            best_inliers = inliers
+            best_s = s
+            best_t = t
+            
+    # Polish: Run Least Squares ONLY on the verified inliers to get the absolute best fit
+    pred_gt = est_vals * best_s + best_t
+    inlier_mask = torch.abs(pred_gt - gt_vals) < inlier_thresh
+    
+    if inlier_mask.sum() > 2:
+        A = torch.vstack([est_vals[inlier_mask], torch.ones_like(est_vals[inlier_mask])]).T
+        solution = torch.linalg.lstsq(A, gt_vals[inlier_mask]).solution
+        best_s, best_t = solution[0].item(), solution[1].item()
+
+    return best_s, best_t
+
+
 def get_diffused_depth(
     pcd,
     path_append="",
     num_views=50, H=512, W=512, 
 ):
     renders_dir = os.path.join("renders",
-    f"{path_append}im2im cond-{CONDITION_SCALE} ip-{IP_PROMPT_SCALE} str-{STRENGTH_IMG2IMG} pr-{TEXT_PROMPT.replace(',', '')}")
+    f"apr7{path_append}im2im cond-{CONDITION_SCALE} ip-{IP_PROMPT_SCALE} str-{STRENGTH_IMG2IMG} pr-{TEXT_PROMPT.replace(',', '')}")
     
     if not os.path.isdir(renders_dir):
         os.mkdir(renders_dir)    
@@ -305,7 +354,7 @@ def get_diffused_depth(
         new_depth_uint8 = (new_depth_norm * 255).byte()
         new_depth_pil = tpl(new_depth_uint8)
         new_depth_pil.save(os.path.join(renders_dir, f"{now}e.png"))
-        # --- THE NAIVE SHAPE COMPLETION BLOCK ---
+        # --- THE ROBUST SHAPE COMPLETION BLOCK ---
         
         # 1. Flatten the raw MiDaS depth and your GT depth
         new_depth_flat = new_depth_tensor.to(device).flatten()
@@ -313,28 +362,50 @@ def get_diffused_depth(
         
         # 2. ALIGNMENT: Find scale (s) and shift (t) using overlapping pixels
         valid_overlap = gt_depth_flat > 0
-        if valid_overlap.sum() > 10: # If we have enough overlapping points to do math
+        if valid_overlap.sum() > 10: 
             gt_vals = gt_depth_flat[valid_overlap]
             est_vals = new_depth_flat[valid_overlap]
             
-            # Least Squares: est_vals * s + t = gt_vals
-            A = torch.vstack([est_vals, torch.ones_like(est_vals)]).T
-            solution = torch.linalg.lstsq(A, gt_vals).solution
-            s, t = solution[0], solution[1]
+            # Use RANSAC instead of raw Least Squares!
+            s, t = ransac_depth_alignment(gt_vals, est_vals, num_iters=1000, inlier_thresh=0.05)
             
-            # Apply to the ENTIRE hallucinated depth map to snap it into metric 3D space
             aligned_depth_flat = new_depth_flat * s + t
         else:
             aligned_depth_flat = new_depth_flat # Fallback
 
-        # 3. MASKING: We only want to keep the chair, not the white background.
-        # Since you prompted "white background", we just threshold the RGB image!
-        out_rgb = torch.tensor(np.array(output_image)).to(device).view(-1, 3)
-        # If the sum of R, G, B is less than 740, it's NOT pure white (foreground)
-        fg_mask = out_rgb.sum(dim=-1) < 740 
+        # --- 3. MASKING & PER-POV FILTERING ---
         
-        # Keep pixels that are foreground AND have valid depth
-        valid_new_points_mask = fg_mask & (aligned_depth_flat > 0)
+        # Original RGB Background Mask (Keep this!)
+        out_rgb = torch.tensor(np.array(output_image)).to(device).view(-1, 3)
+        fg_mask = out_rgb.sum(dim=-1) < 650 # (Adjusted to 650 to be slightly stricter on grey smudges)
+        
+        # FILTER 1: "Trust Only Very Close"
+        # new_depth_norm is 1.0 (White/Close) to 0.0 (Black/Far). 
+        # By setting a cutoff, we kill the "kinda close" background hallucinations.
+        new_depth_norm_flat = new_depth_norm.to(device).flatten()
+        confidence_mask = new_depth_norm_flat > 0.8 # TWEAK KNOB: Raise to 0.5 or 0.6 if still noisy
+        
+        # FILTER 2: "Physical Reality Cap"
+        # We find the furthest physical point of the existing sofa from this specific camera.
+        if valid_overlap.sum() > 0:
+            max_existing_depth = gt_depth_flat[valid_overlap].max()
+            # Allow the hallucination to extend a bit behind the existing points, 
+            # but cap it so the background doesn't stretch into a wall.
+            depth_allowance = 0.2 # TWEAK KNOB: How thick the missing parts can be (in PyTorch3D units)
+            depth_ceiling = max_existing_depth + depth_allowance
+            
+            # In PyTorch3D, smaller Z is closer. We only keep points closer than the ceiling.
+            reality_mask = aligned_depth_flat < depth_ceiling
+        else:
+            reality_mask = torch.ones_like(aligned_depth_flat, dtype=torch.bool)
+
+        # COMBINE ALL FILTERS
+        valid_new_points_mask = (
+            fg_mask & 
+            (aligned_depth_flat > 0) & 
+            confidence_mask & 
+            reality_mask
+        )
         
         if valid_new_points_mask.sum() > 0:
             # 4. UNPROJECTION: Combine NDC X,Y with our new Aligned Z
@@ -367,11 +438,12 @@ def get_diffused_depth(
         final_points, final_colors = merge_and_color_pointclouds(
             existing_points=original_points, 
             hallucinated_points=raw_fused_points, 
-            threshold=0.03 # Tweak this! 0.03 is usually good for normalized shapes
+            threshold=0.02 # Tweak this! 0.03 is usually good for normalized shapes
         )
         
         # 2. Save to PLY
-        save_path = os.path.join(renders_dir, "completed_shape_colored.ply")
+        # save_path = os.path.join(renders_dir, "completed_shape_colored.ply")
+        save_path = "completed_shape_colored.ply"
         save_pointcloud_with_features(final_points, save_path, features=final_colors)
         
         print(f"Saved completed PLY with green hallucinated points!")
@@ -385,8 +457,8 @@ if __name__ == "__main__":
     print("----------")
     device = torch.device("cuda")
 
-    pcd_file = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
-    #pcd_file ="/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
+    # pcd_file = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
+    pcd_file ="/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
     
     first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(pcd_file, device)
     print(f"Processing {pcd_file}")

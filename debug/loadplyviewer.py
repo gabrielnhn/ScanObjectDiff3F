@@ -1,6 +1,5 @@
 import trimesh
-# from test_pc_scanobject import visualize_internal_labels
-
+import test_pc_scanobject
 
 # trimesh.load("./final_source_gt.ply").show()
 # trimesh.load("./final_transfer_result.ply").show()
@@ -13,4 +12,7 @@ import trimesh
 
 # trimesh.load("debug_align_blue_original.ply").show()
 # trimesh.load("debug_align_red_unprojected.ply").show()
+
+test_pc_scanobject.visualize_internal_labels(test_pc_scanobject.TEST_FILE1)
+
 trimesh.load("completed_shape_colored.ply").show()
