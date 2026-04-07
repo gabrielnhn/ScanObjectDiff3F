@@ -8,6 +8,7 @@ from time import time
 from pc_utils import load_scanobjectnn_to_pytorch3d
 import ip_controlnet
 import clip
+import depth_estimation
 
 
 CONDITION_SCALE = 0.4
@@ -171,6 +172,8 @@ def get_diffused_depth(
     best_pov_image.save(os.path.join(renders_dir, "REFERENCE.png"))
     
     ip_pipe = ip_controlnet.init_diffusion()
+    depther = depth_estimation.init_depther()
+
 
     # DIFFUSION STEP 
     for idx in tqdm(range(len(batched_imgs))):
@@ -237,6 +240,21 @@ def get_diffused_depth(
         # output_image.save(f"diffrender/{now}d.png")
         output_image.save(os.path.join(renders_dir, f"{now}d.png"))
         
+        new_depth_tensor = depth_estimation.get_depth_map(depther, output_image)
+        min_d = new_depth_tensor.min()
+        max_d = new_depth_tensor.max()
+        if max_d > min_d:
+            new_depth_norm = (new_depth_tensor - min_d) / (max_d - min_d)
+            new_depth_norm = 1.0 - new_depth_norm
+        else:
+            new_depth_norm = torch.ones_like(new_depth_tensor)
+            
+        new_depth_uint8 = (new_depth_norm * 255).byte()
+        new_depth_pil = tpl(new_depth_uint8)
+        new_depth_pil.save(os.path.join(renders_dir, f"{now}e.png"))
+        
+        
+        
         
     print(f"Time taken: {(time() - t1) / 60:.2f} min")
     
@@ -250,10 +268,10 @@ if __name__ == "__main__":
     print("----------")
     device = torch.device("cuda")
 
-    # first_FILE = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
-    pcd_file ="/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
+    pcd_file = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
+    #pcd_file ="/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
     
     first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(pcd_file, device)
     print(f"Processing {pcd_file}")
-    get_diffused_depth(first_pcd, os.path.basename(pcd_file).split(".")[0])
+    get_diffused_depth(first_pcd, "withdepth"+os.path.basename(pcd_file).split(".")[0])
     
