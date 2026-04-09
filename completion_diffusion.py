@@ -13,8 +13,8 @@ import depth_estimation
 
 CONDITION_SCALE = 0.4
 IP_PROMPT_SCALE = 0.75
-TEXT_PROMPT = "back of sofa, back of couch, white background, high quality, best quality"
-STRENGTH_IMG2IMG = 0.6
+TEXT_PROMPT = "chair, white background, high quality, best quality"
+STRENGTH_IMG2IMG = 0.8
 
 
 from pytorch3d.renderer import (
@@ -163,7 +163,7 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    renderer = CircleRenderer(background_color=(1,1,1)).to(device)
+    renderer = CircleRenderer(background_color=(0,0,0)).to(device)
 
     pcd_batch = pcd.extend(num_actual_views)
 
@@ -232,7 +232,7 @@ def get_diffused_depth(
     num_views=50, H=512, W=512, 
 ):
     renders_dir = os.path.join("renders",
-    f"apr7{path_append}im2im cond-{CONDITION_SCALE} ip-{IP_PROMPT_SCALE} str-{STRENGTH_IMG2IMG} pr-{TEXT_PROMPT.replace(',', '')}")
+    f"{path_append}im2im cond-{CONDITION_SCALE} ip-{IP_PROMPT_SCALE} str-{STRENGTH_IMG2IMG} pr-{TEXT_PROMPT.replace(',', '')}")
     
     if not os.path.isdir(renders_dir):
         os.mkdir(renders_dir)    
@@ -354,72 +354,74 @@ def get_diffused_depth(
         new_depth_uint8 = (new_depth_norm * 255).byte()
         new_depth_pil = tpl(new_depth_uint8)
         new_depth_pil.save(os.path.join(renders_dir, f"{now}e.png"))
-        # --- THE ROBUST SHAPE COMPLETION BLOCK ---
         
-        # 1. Flatten the raw MiDaS depth and your GT depth
-        new_depth_flat = new_depth_tensor.to(device).flatten()
-        gt_depth_flat = depth[idx].to(device).flatten()
         
-        # 2. ALIGNMENT: Find scale (s) and shift (t) using overlapping pixels
-        valid_overlap = gt_depth_flat > 0
-        if valid_overlap.sum() > 10: 
-            gt_vals = gt_depth_flat[valid_overlap]
-            est_vals = new_depth_flat[valid_overlap]
+        # # --- THE ROBUST SHAPE COMPLETION BLOCK ---
+        
+        # # 1. Flatten the raw MiDaS depth and your GT depth
+        # new_depth_flat = new_depth_tensor.to(device).flatten()
+        # gt_depth_flat = depth[idx].to(device).flatten()
+        
+        # # 2. ALIGNMENT: Find scale (s) and shift (t) using overlapping pixels
+        # valid_overlap = gt_depth_flat > 0
+        # if valid_overlap.sum() > 10: 
+        #     gt_vals = gt_depth_flat[valid_overlap]
+        #     est_vals = new_depth_flat[valid_overlap]
             
-            # Use RANSAC instead of raw Least Squares!
-            s, t = ransac_depth_alignment(gt_vals, est_vals, num_iters=1000, inlier_thresh=0.05)
+        #     # Use RANSAC instead of raw Least Squares!
+        #     s, t = ransac_depth_alignment(gt_vals, est_vals, num_iters=1000, inlier_thresh=0.05)
             
-            aligned_depth_flat = new_depth_flat * s + t
-        else:
-            aligned_depth_flat = new_depth_flat # Fallback
+        #     aligned_depth_flat = new_depth_flat * s + t
+        # else:
+        #     aligned_depth_flat = new_depth_flat # Fallback
 
-        # --- 3. MASKING & PER-POV FILTERING ---
+        # # --- 3. MASKING & PER-POV FILTERING ---
         
-        # Original RGB Background Mask (Keep this!)
-        out_rgb = torch.tensor(np.array(output_image)).to(device).view(-1, 3)
-        fg_mask = out_rgb.sum(dim=-1) < 650 # (Adjusted to 650 to be slightly stricter on grey smudges)
+        # # Original RGB Background Mask (Keep this!)
+        # out_rgb = torch.tensor(np.array(output_image)).to(device).view(-1, 3)
+        # fg_mask = out_rgb.sum(dim=-1) < 650 # (Adjusted to 650 to be slightly stricter on grey smudges)
         
-        # FILTER 1: "Trust Only Very Close"
-        # new_depth_norm is 1.0 (White/Close) to 0.0 (Black/Far). 
-        # By setting a cutoff, we kill the "kinda close" background hallucinations.
-        new_depth_norm_flat = new_depth_norm.to(device).flatten()
-        confidence_mask = new_depth_norm_flat > 0.8 # TWEAK KNOB: Raise to 0.5 or 0.6 if still noisy
+        # # FILTER 1: "Trust Only Very Close"
+        # # new_depth_norm is 1.0 (White/Close) to 0.0 (Black/Far). 
+        # # By setting a cutoff, we kill the "kinda close" background hallucinations.
+        # new_depth_norm_flat = new_depth_norm.to(device).flatten()
+        # confidence_mask = new_depth_norm_flat > 0.8 # TWEAK KNOB: Raise to 0.5 or 0.6 if still noisy
         
-        # FILTER 2: "Physical Reality Cap"
-        # We find the furthest physical point of the existing sofa from this specific camera.
-        if valid_overlap.sum() > 0:
-            max_existing_depth = gt_depth_flat[valid_overlap].max()
-            # Allow the hallucination to extend a bit behind the existing points, 
-            # but cap it so the background doesn't stretch into a wall.
-            depth_allowance = 0.2 # TWEAK KNOB: How thick the missing parts can be (in PyTorch3D units)
-            depth_ceiling = max_existing_depth + depth_allowance
+        # # FILTER 2: "Physical Reality Cap"
+        # # We find the furthest physical point of the existing sofa from this specific camera.
+        # if valid_overlap.sum() > 0:
+        #     max_existing_depth = gt_depth_flat[valid_overlap].max()
+        #     # Allow the hallucination to extend a bit behind the existing points, 
+        #     # but cap it so the background doesn't stretch into a wall.
+        #     depth_allowance = 0.2 # TWEAK KNOB: How thick the missing parts can be (in PyTorch3D units)
+        #     depth_ceiling = max_existing_depth + depth_allowance
             
-            # In PyTorch3D, smaller Z is closer. We only keep points closer than the ceiling.
-            reality_mask = aligned_depth_flat < depth_ceiling
-        else:
-            reality_mask = torch.ones_like(aligned_depth_flat, dtype=torch.bool)
+        #     # In PyTorch3D, smaller Z is closer. We only keep points closer than the ceiling.
+        #     reality_mask = aligned_depth_flat < depth_ceiling
+        # else:
+        #     reality_mask = torch.ones_like(aligned_depth_flat, dtype=torch.bool)
 
-        # COMBINE ALL FILTERS
-        valid_new_points_mask = (
-            fg_mask & 
-            (aligned_depth_flat > 0) & 
-            confidence_mask & 
-            reality_mask
-        )
+        # # COMBINE ALL FILTERS
+        # valid_new_points_mask = (
+        #     fg_mask & 
+        #     (aligned_depth_flat > 0) & 
+        #     confidence_mask & 
+        #     reality_mask
+        # )
         
-        if valid_new_points_mask.sum() > 0:
-            # 4. UNPROJECTION: Combine NDC X,Y with our new Aligned Z
-            xy_depth_new = torch.cat((
-                pixel_coords_flat[valid_new_points_mask], 
-                aligned_depth_flat[valid_new_points_mask].unsqueeze(1)
-            ), dim=1)
+        # if valid_new_points_mask.sum() > 0:
+        #     # 4. UNPROJECTION: Combine NDC X,Y with our new Aligned Z
+        #     xy_depth_new = torch.cat((
+        #         pixel_coords_flat[valid_new_points_mask], 
+        #         aligned_depth_flat[valid_new_points_mask].unsqueeze(1)
+        #     ), dim=1)
 
-            # PyTorch3D Magic!
-            world_coords_new = cameras[idx].unproject_points(
-                xy_depth_new, world_coordinates=True, from_ndc=True
-            )
+        #     # PyTorch3D Magic!
+        #     world_coords_new = cameras[idx].unproject_points(
+        #         xy_depth_new, world_coordinates=True, from_ndc=True
+        #     )
             
-            all_hallucinated_points.append(world_coords_new.cpu())
+        #     all_hallucinated_points.append(world_coords_new.cpu())
         
         
         
@@ -429,26 +431,26 @@ def get_diffused_depth(
     del batched_imgs, depth, cameras
     torch.cuda.empty_cache()
     
-    print("Fusing point cloud...")
-    if len(all_hallucinated_points) > 0:
-        raw_fused_points = torch.cat(all_hallucinated_points, dim=0)
-        original_points = points.to(device)
+    # print("Fusing point cloud...")
+    # if len(all_hallucinated_points) > 0:
+    #     raw_fused_points = torch.cat(all_hallucinated_points, dim=0)
+    #     original_points = points.to(device)
         
-        # 1. Filter out the noise and paint the new points green
-        final_points, final_colors = merge_and_color_pointclouds(
-            existing_points=original_points, 
-            hallucinated_points=raw_fused_points, 
-            threshold=0.02 # Tweak this! 0.03 is usually good for normalized shapes
-        )
+    #     # 1. Filter out the noise and paint the new points green
+    #     final_points, final_colors = merge_and_color_pointclouds(
+    #         existing_points=original_points, 
+    #         hallucinated_points=raw_fused_points, 
+    #         threshold=0.02 # Tweak this! 0.03 is usually good for normalized shapes
+    #     )
         
-        # 2. Save to PLY
-        # save_path = os.path.join(renders_dir, "completed_shape_colored.ply")
-        save_path = "INFERENCE_SHAPE.ply"
-        save_pointcloud_with_features(final_points, save_path, features=final_colors)
+    #     # 2. Save to PLY
+    #     # save_path = os.path.join(renders_dir, "completed_shape_colored.ply")
+    #     save_path = "INFERENCE_SHAPE.ply"
+    #     save_pointcloud_with_features(final_points, save_path, features=final_colors)
         
-        print(f"Saved completed PLY with green hallucinated points!")
-    else:
-        print("No points were generated.")
+    #     print(f"Saved completed PLY with green hallucinated points!")
+    # else:
+    #     print("No points were generated.")
     
     
 # if __name__ == "__main__":
