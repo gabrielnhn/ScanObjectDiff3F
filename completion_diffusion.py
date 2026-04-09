@@ -443,7 +443,7 @@ def get_diffused_depth(
         
         # 2. Save to PLY
         # save_path = os.path.join(renders_dir, "completed_shape_colored.ply")
-        save_path = "completed_shape_colored.ply"
+        save_path = "INFERENCE_SHAPE.ply"
         save_pointcloud_with_features(final_points, save_path, features=final_colors)
         
         print(f"Saved completed PLY with green hallucinated points!")
@@ -451,16 +451,46 @@ def get_diffused_depth(
         print("No points were generated.")
     
     
+# if __name__ == "__main__":
+#     print("----------")
+#     print("----------")
+#     print("----------")
+#     device = torch.device("cuda")
+
+#     # pcd_file = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
+#     pcd_file ="/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
+    
+#     first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(pcd_file, device)
+#     print(f"Processing {pcd_file}")
+#     get_diffused_depth(first_pcd, "withdepth"+os.path.basename(pcd_file).split(".")[0])
+    
 if __name__ == "__main__":
-    print("----------")
     print("----------")
     print("----------")
     device = torch.device("cuda")
 
-    # pcd_file = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
-    pcd_file ="/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
+    mvp_file = "/home/gabrielnhn/datasets/MVP_Test_CP.h5"
     
-    first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(pcd_file, device)
-    print(f"Processing {pcd_file}")
-    get_diffused_depth(first_pcd, "withdepth"+os.path.basename(pcd_file).split(".")[0])
+    TEST_INDEX = 5 
     
+    print(f"Loading Partial Point Cloud index {TEST_INDEX} from {mvp_file}")
+    
+    from pc_utils import load_mvp_to_pytorch3d 
+    
+    # Load the incomplete shape to run through your diffusion pipeline
+    partial_pcd = load_mvp_to_pytorch3d(
+        h5_filename=mvp_file, 
+        index=TEST_INDEX, 
+        load_complete=False # Give us the broken shape!
+    )
+    
+    gt_pcd = load_mvp_to_pytorch3d(
+        h5_filename=mvp_file, 
+        index=TEST_INDEX, 
+        load_complete=True # Give us the perfect shape!
+    )
+    save_pointcloud_with_features(gt_pcd, "GROUND_TRUTH_SHAPE.ply")
+
+    # Run your pipeline!
+    path_name = f"MVP_index_{TEST_INDEX}"
+    get_diffused_depth(partial_pcd, path_append=path_name)
