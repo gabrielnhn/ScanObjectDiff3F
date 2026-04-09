@@ -53,6 +53,12 @@ pip install plyfile
 pip install trimesh --no-deps --force-reinstall
 ```
 
+Download IP adapter models, save them in ipmodels/
+
+https://huggingface.co/h94/IP-Adapter/tree/main/models
+especially
+* models/ip-adapter_sd15.bin
+* models/image_encoder/(model.safetensors + config.json)
 
 Dataset:
 Download from https://hkust-vgd.ust.hk/scanobjectnn/

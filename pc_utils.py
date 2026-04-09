@@ -40,16 +40,15 @@ def load_scanobjectnn_to_pytorch3d(filename, device, max_points=50000):
     positions_np, colours_np, normals_np, labels_np = load_pc_file_with_labels(filename)
 
     # 1. Safety Downsampling (Random Shuffle & Cut)
-    if len(positions_np) > max_points:
-        print(f"   -> Downsampling {len(positions_np)} to {max_points} points...")
-        # Generate random permutation
-        indices = np.random.permutation(len(positions_np))[:max_points]
+    # if len(positions_np) > max_points:
+    #     print(f"   -> Downsampling {len(positions_np)} to {max_points} points...")
+    #     # Generate random permutation
+    #     indices = np.random.permutation(len(positions_np))[:max_points]
         
-        positions_np = positions_np[indices]
-        if colours_np is not None: colours_np = colours_np[indices]
-        if normals_np is not None: normals_np = normals_np[indices]
-        if labels_np is not None: labels_np = labels_np[indices]
-
+    #     positions_np = positions_np[indices]
+    #     if colours_np is not None: colours_np = colours_np[indices]
+    #     if normals_np is not None: normals_np = normals_np[indices]
+    #     if labels_np is not None: labels_np = labels_np[indices]
     points_tensor = torch.from_numpy(positions_np).float().to(device)
     
     # Pack Features
@@ -77,24 +76,35 @@ def load_scanobjectnn_to_pytorch3d(filename, device, max_points=50000):
     return pcd, labels_np
 
 
-def save_pointcloud_with_features(pcd, features, filename, labels=None):
+def save_pointcloud_with_features(pcd, filename, features=None, labels=None):
     # print("FEATURES UNSQUEEZE SHAPE", features.unsqueeze(0).shape)
-    points = pcd.points_padded().to(device)
-    # features = features.unsqueeze(0).to(device)
-    pcd_copy = Pointclouds(points=points
-                        #    , features=features
-                           )
+    if isinstance(pcd, Pointclouds):
+        points = pcd.points_padded().to(device)
+    else:
+        points = pcd.to(device)
+    if points.dim() == 2:
+        points = points.unsqueeze(0)
+    
+    if features is not None:
+        features = features.to(device)
+        if features.dim() == 2:
+            features = features.unsqueeze(0)
+            
+        pcd_copy = Pointclouds(points=points, features=features)
+    else:
+        pcd_copy = Pointclouds(points=points)
     
     if not filename.endswith(".ply"):
         filename = filename.split(".")[0]
         filename = filename + ".ply"
-        
     IO().save_pointcloud(data=pcd_copy, path=filename)
-    if not filename.endswith(".pt"):
-        filename = filename.split(".")[0]
-        filename = filename + ".pt"
         
-    torch.save(features, filename)
+    if features is not None:
+        if not filename.endswith(".pt"):
+            filename = filename.split(".")[0]
+            filename = filename + ".pt"
+            
+        torch.save(features, filename)
 
     if labels is not None:
         if not filename.endswith(".npy"):
