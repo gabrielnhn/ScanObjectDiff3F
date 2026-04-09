@@ -11,10 +11,10 @@ import clip
 import depth_estimation
 
 
-CONDITION_SCALE = 0.4
-IP_PROMPT_SCALE = 0.75
-TEXT_PROMPT = "chair, white background, high quality, best quality"
-STRENGTH_IMG2IMG = 0.8
+CONDITION_SCALE = 0.3
+IP_PROMPT_SCALE = 0.25
+TEXT_PROMPT = "complete chair, chair, white background, high quality, best quality"
+STRENGTH_IMG2IMG = 0.9
 
 
 from pytorch3d.renderer import (
@@ -229,6 +229,7 @@ def ransac_depth_alignment(gt_vals, est_vals, num_iters=1000, inlier_thresh=0.05
 def get_diffused_depth(
     pcd,
     path_append="",
+    index_name=0,
     num_views=50, H=512, W=512, 
 ):
     renders_dir = os.path.join("renders",
@@ -273,12 +274,11 @@ def get_diffused_depth(
     best_pov_image.save(os.path.join(renders_dir, "REFERENCE.png"))
     
     ip_pipe = ip_controlnet.init_diffusion()
-    depther = depth_estimation.init_depther()
 
 
-    all_hallucinated_points = []
+    diffused_images = []
     # DIFFUSION STEP 
-    for idx in tqdm(range(len(batched_imgs))):
+    for idx in tqdm(range(len(batched_imgs)), desc="Diffusion all POVs"):
         
         current_depth = depth[idx].to(device).flatten().unsqueeze(1)
         valid_mask = current_depth.squeeze() > 0
@@ -321,11 +321,11 @@ def get_diffused_depth(
         controlnet_depth_pil = Image.fromarray(depth_rgb)
         now = str(datetime.now()).replace(":", "-").replace(".", "-")
         # controlnet_depth_pil.save(f"diffrender/{now}a.png")
-        controlnet_depth_pil.save(os.path.join(renders_dir, f"{now}a.png"))
+        controlnet_depth_pil.save(os.path.join(renders_dir, f"{idx}a.png"))
 
         img_rgb = batched_imgs[idx].permute(2, 0, 1)
         current_pov = tpl(img_rgb)
-        current_pov.save(os.path.join(renders_dir, f"{now}b.png"))
+        current_pov.save(os.path.join(renders_dir, f"{idx}b.png"))
 
         # RUN DIFFUSION
         output_image = ip_controlnet.run_diffusion(
@@ -340,7 +340,17 @@ def get_diffused_depth(
         )
         
         # output_image.save(f"diffrender/{now}d.png")
-        output_image.save(os.path.join(renders_dir, f"{now}d.png"))
+        output_image.save(os.path.join(renders_dir, f"{idx}d.png"))
+        
+        diffused_images.append(output_image)
+        
+    del batched_imgs, cameras, depth_rgb, depth
+    del ip_pipe
+    
+    depther = depth_estimation.init_depther()
+        
+    for idx in tqdm(range(len(diffused_images)), desc="Extracting all depths"):
+        output_image = diffused_images[idx]
         
         new_depth_tensor = depth_estimation.get_depth_map(depther, output_image)
         min_d = new_depth_tensor.min()
@@ -353,119 +363,14 @@ def get_diffused_depth(
             
         new_depth_uint8 = (new_depth_norm * 255).byte()
         new_depth_pil = tpl(new_depth_uint8)
-        new_depth_pil.save(os.path.join(renders_dir, f"{now}e.png"))
-        
-        
-        # # --- THE ROBUST SHAPE COMPLETION BLOCK ---
-        
-        # # 1. Flatten the raw MiDaS depth and your GT depth
-        # new_depth_flat = new_depth_tensor.to(device).flatten()
-        # gt_depth_flat = depth[idx].to(device).flatten()
-        
-        # # 2. ALIGNMENT: Find scale (s) and shift (t) using overlapping pixels
-        # valid_overlap = gt_depth_flat > 0
-        # if valid_overlap.sum() > 10: 
-        #     gt_vals = gt_depth_flat[valid_overlap]
-        #     est_vals = new_depth_flat[valid_overlap]
-            
-        #     # Use RANSAC instead of raw Least Squares!
-        #     s, t = ransac_depth_alignment(gt_vals, est_vals, num_iters=1000, inlier_thresh=0.05)
-            
-        #     aligned_depth_flat = new_depth_flat * s + t
-        # else:
-        #     aligned_depth_flat = new_depth_flat # Fallback
-
-        # # --- 3. MASKING & PER-POV FILTERING ---
-        
-        # # Original RGB Background Mask (Keep this!)
-        # out_rgb = torch.tensor(np.array(output_image)).to(device).view(-1, 3)
-        # fg_mask = out_rgb.sum(dim=-1) < 650 # (Adjusted to 650 to be slightly stricter on grey smudges)
-        
-        # # FILTER 1: "Trust Only Very Close"
-        # # new_depth_norm is 1.0 (White/Close) to 0.0 (Black/Far). 
-        # # By setting a cutoff, we kill the "kinda close" background hallucinations.
-        # new_depth_norm_flat = new_depth_norm.to(device).flatten()
-        # confidence_mask = new_depth_norm_flat > 0.8 # TWEAK KNOB: Raise to 0.5 or 0.6 if still noisy
-        
-        # # FILTER 2: "Physical Reality Cap"
-        # # We find the furthest physical point of the existing sofa from this specific camera.
-        # if valid_overlap.sum() > 0:
-        #     max_existing_depth = gt_depth_flat[valid_overlap].max()
-        #     # Allow the hallucination to extend a bit behind the existing points, 
-        #     # but cap it so the background doesn't stretch into a wall.
-        #     depth_allowance = 0.2 # TWEAK KNOB: How thick the missing parts can be (in PyTorch3D units)
-        #     depth_ceiling = max_existing_depth + depth_allowance
-            
-        #     # In PyTorch3D, smaller Z is closer. We only keep points closer than the ceiling.
-        #     reality_mask = aligned_depth_flat < depth_ceiling
-        # else:
-        #     reality_mask = torch.ones_like(aligned_depth_flat, dtype=torch.bool)
-
-        # # COMBINE ALL FILTERS
-        # valid_new_points_mask = (
-        #     fg_mask & 
-        #     (aligned_depth_flat > 0) & 
-        #     confidence_mask & 
-        #     reality_mask
-        # )
-        
-        # if valid_new_points_mask.sum() > 0:
-        #     # 4. UNPROJECTION: Combine NDC X,Y with our new Aligned Z
-        #     xy_depth_new = torch.cat((
-        #         pixel_coords_flat[valid_new_points_mask], 
-        #         aligned_depth_flat[valid_new_points_mask].unsqueeze(1)
-        #     ), dim=1)
-
-        #     # PyTorch3D Magic!
-        #     world_coords_new = cameras[idx].unproject_points(
-        #         xy_depth_new, world_coordinates=True, from_ndc=True
-        #     )
-            
-        #     all_hallucinated_points.append(world_coords_new.cpu())
-        
-        
-        
+        new_depth_pil.save(os.path.join(renders_dir, f"{idx}e.png"))
         
     print(f"Time taken: {(time() - t1) / 60:.2f} min")
     
-    del batched_imgs, depth, cameras
+    # del batched_imgs, depth, cameras
     torch.cuda.empty_cache()
     
-    # print("Fusing point cloud...")
-    # if len(all_hallucinated_points) > 0:
-    #     raw_fused_points = torch.cat(all_hallucinated_points, dim=0)
-    #     original_points = points.to(device)
-        
-    #     # 1. Filter out the noise and paint the new points green
-    #     final_points, final_colors = merge_and_color_pointclouds(
-    #         existing_points=original_points, 
-    #         hallucinated_points=raw_fused_points, 
-    #         threshold=0.02 # Tweak this! 0.03 is usually good for normalized shapes
-    #     )
-        
-    #     # 2. Save to PLY
-    #     # save_path = os.path.join(renders_dir, "completed_shape_colored.ply")
-    #     save_path = "INFERENCE_SHAPE.ply"
-    #     save_pointcloud_with_features(final_points, save_path, features=final_colors)
-        
-    #     print(f"Saved completed PLY with green hallucinated points!")
-    # else:
-    #     print("No points were generated.")
-    
-    
-# if __name__ == "__main__":
-#     print("----------")
-#     print("----------")
-#     print("----------")
-#     device = torch.device("cuda")
 
-#     # pcd_file = "/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/080_00003.bin"
-#     pcd_file ="/home/gabrielnhn/datasets/object_dataset_complete_with_parts/sofa/294_00002.bin"
-    
-#     first_pcd, first_labels = load_scanobjectnn_to_pytorch3d(pcd_file, device)
-#     print(f"Processing {pcd_file}")
-#     get_diffused_depth(first_pcd, "withdepth"+os.path.basename(pcd_file).split(".")[0])
-    
 if __name__ == "__main__":
     print("----------")
     print("----------")
@@ -473,7 +378,7 @@ if __name__ == "__main__":
 
     mvp_file = "/home/gabrielnhn/datasets/MVP_Test_CP.h5"
     
-    TEST_INDEX = 5 
+    TEST_INDEX = 9
     
     print(f"Loading Partial Point Cloud index {TEST_INDEX} from {mvp_file}")
     
@@ -491,8 +396,9 @@ if __name__ == "__main__":
         index=TEST_INDEX, 
         load_complete=True # Give us the perfect shape!
     )
-    save_pointcloud_with_features(gt_pcd, "GROUND_TRUTH_SHAPE.ply")
+    save_pointcloud_with_features(gt_pcd, f"GROUND_TRUTH_COMPLETE_SHAPE_{TEST_INDEX}.ply")
+    save_pointcloud_with_features(partial_pcd, f"GROUND_TRUTH_PARTIAL_SHAPE_{TEST_INDEX}.ply")
 
     # Run your pipeline!
     path_name = f"MVP_index_{TEST_INDEX}"
-    get_diffused_depth(partial_pcd, path_append=path_name)
+    get_diffused_depth(partial_pcd, path_append=path_name, index_name=TEST_INDEX)

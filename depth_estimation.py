@@ -5,7 +5,8 @@ import torch.nn.functional as F
 import numpy as np
 from transformers import AutoImageProcessor, AutoModelForDepthEstimation
 
-model_string = "Intel/dpt-hybrid-midas" 
+# model_string = "Intel/dpt-hybrid-midas" 
+model_string = "Intel/dpt-large" 
 
 processor = AutoImageProcessor.from_pretrained(model_string)
 device = "cuda" if torch.cuda.is_available() else "cpu"

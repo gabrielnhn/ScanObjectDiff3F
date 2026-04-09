@@ -16,5 +16,7 @@ import trimesh
 # test_pc_scanobject.visualize_internal_labels(test_pc_scanobject.TEST_FILE1)
 
 # trimesh.load("completed_shape_colored.ply").show()
-trimesh.load("GROUND_TRUTH_SHAPE.ply").show()
+TEST_INDEX = 9
+trimesh.load(f"GROUND_TRUTH_COMPLETE_SHAPE_{TEST_INDEX}.ply").show()
+trimesh.load(f"GROUND_TRUTH_PARTIAL_SHAPE_{TEST_INDEX}.ply").show()
 
