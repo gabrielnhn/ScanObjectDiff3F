@@ -1,5 +1,5 @@
 import trimesh
-import test_pc_scanobject
+# import test_pc_scanobject
 
 # trimesh.load("./final_source_gt.ply").show()
 # trimesh.load("./final_transfer_result.ply").show()
@@ -13,6 +13,10 @@ import test_pc_scanobject
 # trimesh.load("debug_align_blue_original.ply").show()
 # trimesh.load("debug_align_red_unprojected.ply").show()
 
-test_pc_scanobject.visualize_internal_labels(test_pc_scanobject.TEST_FILE1)
+# test_pc_scanobject.visualize_internal_labels(test_pc_scanobject.TEST_FILE1)
 
-trimesh.load("completed_shape_colored.ply").show()
+# trimesh.load("completed_shape_colored.ply").show()
+TEST_INDEX = 9
+trimesh.load(f"GROUND_TRUTH_COMPLETE_SHAPE_{TEST_INDEX}.ply").show()
+trimesh.load(f"GROUND_TRUTH_PARTIAL_SHAPE_{TEST_INDEX}.ply").show()
+

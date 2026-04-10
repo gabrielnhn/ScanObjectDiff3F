@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from pytorch3d.structures import Pointclouds
 from pytorch3d.io import IO
+import h5py
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -38,17 +39,6 @@ def load_pc_file_with_labels(filename):
 
 def load_scanobjectnn_to_pytorch3d(filename, device, max_points=50000):
     positions_np, colours_np, normals_np, labels_np = load_pc_file_with_labels(filename)
-
-    # 1. Safety Downsampling (Random Shuffle & Cut)
-    # if len(positions_np) > max_points:
-    #     print(f"   -> Downsampling {len(positions_np)} to {max_points} points...")
-    #     # Generate random permutation
-    #     indices = np.random.permutation(len(positions_np))[:max_points]
-        
-    #     positions_np = positions_np[indices]
-    #     if colours_np is not None: colours_np = colours_np[indices]
-    #     if normals_np is not None: normals_np = normals_np[indices]
-    #     if labels_np is not None: labels_np = labels_np[indices]
     points_tensor = torch.from_numpy(positions_np).float().to(device)
     
     # Pack Features
@@ -112,3 +102,36 @@ def save_pointcloud_with_features(pcd, filename, features=None, labels=None):
             filename = filename + ".npy"
     
         np.save(filename, labels)    
+        
+        
+def load_mvp_to_pytorch3d(h5_filename, index=0, load_complete=False):
+    with h5py.File(h5_filename, 'r') as f:
+        # Usually they are 'incomplete_pcds', 'complete_pcds', and 'labels'
+        
+        if load_complete:
+            key = 'complete_pcds' if 'complete_pcds' in f.keys() else 'gt_pcds'
+            # Note: Complete PCDs are often fewer (e.g., 1 per object instead of 26 per view)
+            # So the index might need wrapping depending on how MVP formatted the test set.
+            # Usually, they align them 1-to-1 in the CP file to make life easy.
+            idx_to_use = index if len(f[key]) == len(f['incomplete_pcds']) else index // 26
+        else:
+            key = 'incomplete_pcds' if 'incomplete_pcds' in f.keys() else 'partial_pcds'
+            idx_to_use = index
+            
+        # Extract the XYZ coordinates
+        points_np = f[key][idx_to_use] # Shape: (2048, 3) or (16384, 3)
+        
+    # Move to PyTorch
+    points_tensor = torch.from_numpy(points_np).float().to(device)
+    
+    # MVP only provides geometry (XYZ), no RGB. 
+    # We create a dummy feature tensor of ones (White color) so PyTorch3D doesn't break!
+    features_tensor = torch.ones_like(points_tensor).to(device) 
+    
+    # Pack into PyTorch3D format
+    pcd = Pointclouds(
+        points=[points_tensor], 
+        features=[features_tensor],
+    )
+    
+    return pcd #, labels_np
