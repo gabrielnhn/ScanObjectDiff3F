@@ -13,7 +13,7 @@ import depth_estimation
 
 CONDITION_SCALE = 0.3
 IP_PROMPT_SCALE = 0.25
-TEXT_PROMPT = "complete chair, chair, white background, high quality, best quality"
+TEXT_PROMPT = "complete chair, chair, black background, high quality, best quality"
 STRENGTH_IMG2IMG = 0.9
 
 

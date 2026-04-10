@@ -71,7 +71,7 @@ def run_diffusion(ip_model,
         image=current_pov_image,
         control_image=depth_map, 
         prompt=text_prompt,
-        negative_prompt="background, lowres, details",
+        negative_prompt="background, lowres, details, watermark",
         scale=ip_prompt_scale, 
         controlnet_conditioning_scale=condition_scale,
         # Img2Img Strength: How much noise to add to current_pov_image. 
