@@ -3,6 +3,7 @@ import torch
 from pytorch3d.structures import Pointclouds
 from pytorch3d.io import IO
 import h5py
+import os
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -135,3 +136,27 @@ def load_mvp_to_pytorch3d(h5_filename, index=0, load_complete=False):
     )
     
     return pcd #, labels_np
+
+def load_ply_to_pytorch3d(filepath):
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Could not find PLY file at: {filepath}")
+
+    # PyTorch3D's native IO handles PLY parsing beautifully
+    raw_pcd = IO().load_pointcloud(filepath, device=device)
+    
+    points = raw_pcd.points_padded()
+    features = raw_pcd.features_padded()
+    normals = raw_pcd.normals_padded()
+    
+    # Safety net: If the PLY lacks color data, fake it so the renderer doesn't crash
+    if features is None:
+        features = torch.ones_like(points).to(device)
+        
+    # Re-pack it safely
+    safe_pcd = Pointclouds(
+        points=points,
+        features=features,
+        normals=normals if normals is not None else None
+    )
+    
+    return safe_pcd

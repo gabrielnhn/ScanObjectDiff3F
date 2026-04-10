@@ -10,11 +10,12 @@ import ip_controlnet
 import clip
 import depth_estimation
 
+PROMPT_APPEND_ALWAYS = "realistic, high quality, best quality"
 
-CONDITION_SCALE = 0.3
+CONDITION_SCALE = 0.4
 IP_PROMPT_SCALE = 0.25
-TEXT_PROMPT = "complete chair, chair, black background, high quality, best quality"
-STRENGTH_IMG2IMG = 0.9
+DEFAULT_TEXT_PROMPT = "complete chair, chair, black background"
+STRENGTH_IMG2IMG = 0.8
 
 
 from pytorch3d.renderer import (
@@ -229,15 +230,19 @@ def ransac_depth_alignment(gt_vals, est_vals, num_iters=1000, inlier_thresh=0.05
 def get_diffused_depth(
     pcd,
     path_append="",
-    index_name=0,
+    text_prompt = None,
     num_views=50, H=512, W=512, 
 ):
     renders_dir = os.path.join("renders",
-    f"{path_append}im2im cond-{CONDITION_SCALE} ip-{IP_PROMPT_SCALE} str-{STRENGTH_IMG2IMG} pr-{TEXT_PROMPT.replace(',', '')}")
+    f"{path_append}im2im cond-{CONDITION_SCALE} ip-{IP_PROMPT_SCALE} str-{STRENGTH_IMG2IMG}")
     
     if not os.path.isdir(renders_dir):
         os.mkdir(renders_dir)    
     
+    if text_prompt is None:
+        text_prompt = DEFAULT_TEXT_PROMPT
+    
+    text_prompt += PROMPT_APPEND_ALWAYS
     
     t1 = time()
     # if points is None: 
@@ -258,7 +263,9 @@ def get_diffused_depth(
         img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
         # dino_feat, dino_score, class_idx = get_dino_features_and_score(device, semanticity_model, img_rgb, score=USE_SCORE)
         # del dino_feat, img_rgb, class_idx
-        semanticity_score = clip.clip_score(semanticity_model, semanticity_processor, img_rgb)
+        semanticity_score = clip.clip_score(
+            semanticity_model, semanticity_processor, img_rgb,
+            prompt="cow"+PROMPT_APPEND_ALWAYS)
         
         if semanticity_score > best_dino_score:
             best_dino_score = semanticity_score
@@ -326,8 +333,7 @@ def get_diffused_depth(
         img_rgb = batched_imgs[idx].permute(2, 0, 1)
         current_pov = tpl(img_rgb)
         current_pov.save(os.path.join(renders_dir, f"{idx}b.png"))
-
-        # RUN DIFFUSION
+        
         output_image = ip_controlnet.run_diffusion(
             ip_pipe,        
             best_pov_image,       
@@ -335,7 +341,7 @@ def get_diffused_depth(
             current_pov,
             condition_scale=CONDITION_SCALE,
             ip_prompt_scale=IP_PROMPT_SCALE,
-            text_prompt=TEXT_PROMPT,
+            text_prompt=text_prompt,
             strength=STRENGTH_IMG2IMG
         )
         
@@ -370,35 +376,49 @@ def get_diffused_depth(
     # del batched_imgs, depth, cameras
     torch.cuda.empty_cache()
     
-
 if __name__ == "__main__":
     print("----------")
     print("----------")
     device = torch.device("cuda")
-
-    mvp_file = "/home/gabrielnhn/datasets/MVP_Test_CP.h5"
+    dataset_path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj"    
+    object = "cow.ply"
     
-    TEST_INDEX = 9
-    
-    print(f"Loading Partial Point Cloud index {TEST_INDEX} from {mvp_file}")
-    
-    from pc_utils import load_mvp_to_pytorch3d 
-    
+    from pc_utils import load_ply_to_pytorch3d 
     # Load the incomplete shape to run through your diffusion pipeline
-    partial_pcd = load_mvp_to_pytorch3d(
-        h5_filename=mvp_file, 
-        index=TEST_INDEX, 
-        load_complete=False # Give us the broken shape!
-    )
+    partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object))
+    gt_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "gtdata", object))
     
-    gt_pcd = load_mvp_to_pytorch3d(
-        h5_filename=mvp_file, 
-        index=TEST_INDEX, 
-        load_complete=True # Give us the perfect shape!
+    save_pointcloud_with_features(gt_pcd, f"GROUND_TRUTH_COMPLETE_SHAPE.ply")
+    save_pointcloud_with_features(partial_pcd, f"GROUND_TRUTH_PARTIAL_SHAPE.ply")
+    path_name = f"RedWood"
+    get_diffused_depth(partial_pcd, path_append=path_name,
+        text_prompt="cow, complete cow, black background"
     )
-    save_pointcloud_with_features(gt_pcd, f"GROUND_TRUTH_COMPLETE_SHAPE_{TEST_INDEX}.ply")
-    save_pointcloud_with_features(partial_pcd, f"GROUND_TRUTH_PARTIAL_SHAPE_{TEST_INDEX}.ply")
 
-    # Run your pipeline!
-    path_name = f"MVP_index_{TEST_INDEX}"
-    get_diffused_depth(partial_pcd, path_append=path_name, index_name=TEST_INDEX)
+
+# if __name__ == "MVP":
+#     print("----------")
+#     print("----------")
+#     device = torch.device("cuda")
+#     mvp_file = "/home/gabrielnhn/datasets/MVP_Test_CP.h5"    
+#     TEST_INDEX = 9
+#     print(f"Loading Partial Point Cloud index {TEST_INDEX} from {mvp_file}")
+#     from pc_utils import load_mvp_to_pytorch3d 
+#     # Load the incomplete shape to run through your diffusion pipeline
+#     partial_pcd = load_mvp_to_pytorch3d(
+#         h5_filename=mvp_file, 
+#         index=TEST_INDEX, 
+#         load_complete=False # Give us the broken shape!
+#     )
+#     gt_pcd = load_mvp_to_pytorch3d(
+#         h5_filename=mvp_file, 
+#         index=TEST_INDEX, 
+#         load_complete=True # Give us the perfect shape!
+#     )
+#     save_pointcloud_with_features(gt_pcd, f"GROUND_TRUTH_COMPLETE_SHAPE_{TEST_INDEX}.ply")
+#     save_pointcloud_with_features(partial_pcd, f"GROUND_TRUTH_PARTIAL_SHAPE_{TEST_INDEX}.ply")
+#     path_name = f"MVP_index_{TEST_INDEX}"
+#     get_diffused_depth(partial_pcd, path_append=path_name,
+#                        text_prompt="cow, complete cow")
+    
+    
