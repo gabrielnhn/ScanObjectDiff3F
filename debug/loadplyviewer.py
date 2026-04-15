@@ -17,6 +17,7 @@ import trimesh
 
 # trimesh.load("completed_shape_colored.ply").show()
 # TEST_INDEX = 9
-trimesh.load(f"GROUND_TRUTH_COMPLETE_SHAPE.ply").show()
-trimesh.load(f"GROUND_TRUTH_PARTIAL_SHAPE.ply").show()
+# trimesh.load(f"GROUND_TRUTH_COMPLETE_SHAPE.ply").show()
+# trimesh.load(f"GROUND_TRUTH_PARTIAL_SHAPE.ply").show()
 
+trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/horse.ply").show()

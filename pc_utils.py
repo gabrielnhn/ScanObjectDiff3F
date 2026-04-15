@@ -148,9 +148,14 @@ def load_ply_to_pytorch3d(filepath):
     features = raw_pcd.features_padded()
     normals = raw_pcd.normals_padded()
     
-    # Safety net: If the PLY lacks color data, fake it so the renderer doesn't crash
     if features is None:
-        features = torch.ones_like(points).to(device)
+        # Create a brown color tensor [R, G, B]
+        brown_color = torch.tensor([0.54, 0.27, 0.07], device=device)
+
+        # points is shape (B, N, 3) due to points_padded().
+        # We use .view() to make brown_color (1, 1, 3) and .expand_as() 
+        # to effortlessly copy it across the Batch and N dimensions.
+        features = brown_color.view(1, 1, 3).expand_as(points)        
         
     # Re-pack it safely
     safe_pcd = Pointclouds(

@@ -10,11 +10,11 @@ import ip_controlnet
 import clip
 import depth_estimation
 
-PROMPT_APPEND_ALWAYS = "realistic, high quality, best quality"
+PROMPT_APPEND_ALWAYS = ", high quality, best quality"
 
-CONDITION_SCALE = 0.4
+CONDITION_SCALE = 0.2
 IP_PROMPT_SCALE = 0.25
-DEFAULT_TEXT_PROMPT = "complete chair, chair, black background"
+DEFAULT_TEXT_PROMPT = ""
 STRENGTH_IMG2IMG = 0.8
 
 
@@ -164,7 +164,10 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    renderer = CircleRenderer(background_color=(0,0,0)).to(device)
+    renderer = CircleRenderer(
+        # background_color=(0,0,0)
+        background_color=(1,1,1)
+                              ).to(device)
 
     pcd_batch = pcd.extend(num_actual_views)
 
@@ -265,7 +268,7 @@ def get_diffused_depth(
         # del dino_feat, img_rgb, class_idx
         semanticity_score = clip.clip_score(
             semanticity_model, semanticity_processor, img_rgb,
-            prompt="cow"+PROMPT_APPEND_ALWAYS)
+            prompt="horse, outline of a horse"+PROMPT_APPEND_ALWAYS)
         
         if semanticity_score > best_dino_score:
             best_dino_score = semanticity_score
@@ -325,10 +328,10 @@ def get_diffused_depth(
         depth_rgb = np.stack([depth_uint8] * 3, axis=-1)
         
         from PIL import Image
-        controlnet_depth_pil = Image.fromarray(depth_rgb)
+        depth_pil = Image.fromarray(depth_rgb)
         now = str(datetime.now()).replace(":", "-").replace(".", "-")
         # controlnet_depth_pil.save(f"diffrender/{now}a.png")
-        controlnet_depth_pil.save(os.path.join(renders_dir, f"{idx}a.png"))
+        depth_pil.save(os.path.join(renders_dir, f"{idx}a.png"))
 
         img_rgb = batched_imgs[idx].permute(2, 0, 1)
         current_pov = tpl(img_rgb)
@@ -337,8 +340,9 @@ def get_diffused_depth(
         output_image = ip_controlnet.run_diffusion(
             ip_pipe,        
             best_pov_image,       
-            controlnet_depth_pil,
+            depth_pil,
             current_pov,
+            # depth_pil,
             condition_scale=CONDITION_SCALE,
             ip_prompt_scale=IP_PROMPT_SCALE,
             text_prompt=text_prompt,
@@ -381,7 +385,7 @@ if __name__ == "__main__":
     print("----------")
     device = torch.device("cuda")
     dataset_path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj"    
-    object = "cow.ply"
+    object = "horse.ply"
     
     from pc_utils import load_ply_to_pytorch3d 
     # Load the incomplete shape to run through your diffusion pipeline
@@ -392,7 +396,7 @@ if __name__ == "__main__":
     save_pointcloud_with_features(partial_pcd, f"GROUND_TRUTH_PARTIAL_SHAPE.ply")
     path_name = f"RedWood"
     get_diffused_depth(partial_pcd, path_append=path_name,
-        text_prompt="cow, complete cow, black background"
+        text_prompt="horse, complete horse, black background"
     )
 
 
@@ -419,6 +423,6 @@ if __name__ == "__main__":
 #     save_pointcloud_with_features(partial_pcd, f"GROUND_TRUTH_PARTIAL_SHAPE_{TEST_INDEX}.ply")
 #     path_name = f"MVP_index_{TEST_INDEX}"
 #     get_diffused_depth(partial_pcd, path_append=path_name,
-#                        text_prompt="cow, complete cow")
+#                        text_prompt="horse, complete horse")
     
     
