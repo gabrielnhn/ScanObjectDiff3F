@@ -25,6 +25,8 @@ from pytorch3d.renderer import (
     AlphaCompositor,
     PerspectiveCameras
 )
+from pytorch3d.ops import knn_points
+
 import torchvision
 TPL = torchvision.transforms.ToPILImage
 tpl = TPL()
@@ -131,41 +133,56 @@ def create_zero123_depth_grid(depth_pils):
     return grid
 
 
-def find_best_reference_pov(pcd, device, depth_weight=0.5):
+
+def find_best_reference_pov(pcd, device, pose_w=0.5):
     """
-    Adapted from ComPC
-    Finds the optimal elevation and azimuth to view a partial point cloud.
-    Maximizes visible points (coverage) while minimizing average depth (closeness).
-    Optimized for 6GB VRAM using chunked pure-rasterization.
+    Exact mathematical adaptation of ComPC's pose_step algorithm for PyTorch3D.
+    Minimizes Fidelity Loss (KNN distance from all points to visible points) 
+    + Camera Distance Loss.
     """
-    print("Searching for Canonical Front Face...")
+    print("Searching for Canonical Front Face (ComPC Metric)...")
+    
+    # 1. Standard Bounding Box Setup
+    points = pcd.points_padded()[0]  # (N, 3)
+    total_points = points.shape[0]   # <--- Added for the modulo fix
     
     bbox = pcd.get_bounding_boxes()
     bbox_min = bbox.min(dim=-1).values[0]
     bbox_max = bbox.max(dim=-1).values[0]
     bbox_center = (bbox_min + bbox_max) / 2.0
     distance = torch.sqrt(((bbox_max - bbox_min) ** 2).sum()) * 0.65
-    total_points = pcd.points_padded().shape[1]
 
-    # Use a low resolution. We only need point hits, not pretty pictures!
     H, W = 128, 128 
     raster_settings = PointsRasterizationSettings(
         image_size=(H, W), radius=0.03, points_per_pixel=1
     )
 
-    def evaluate_grid(elevations, azimuths, batch_size=16):
-        best_score = -float('inf')
-        best_elev, best_azim = 0.0, 0.0
+    # ComPC Search Bounds
+    startv, endv = -80.0, 80.0
+    starth, endh = -180.0, 180.0
+    num = 40  # 40x40 = 1600 views per step. (ComPC uses 50, 40 is slightly safer for 6GB VRAM)
+    batch_size = 16
+
+    best_final_elev, best_final_azim = 0.0, 0.0
+
+    # ComPC's Two-Step Loop
+    for j in range(2):
+        print(f"  -> Running Search Pass {j+1}/2...")
         
-        # Flatten the grids
-        elevs_flat = elevations.flatten()
-        azims_flat = azimuths.flatten()
-        num_views = len(elevs_flat)
+        vers = torch.linspace(startv, endv, num, device=device)
+        hors = torch.linspace(starth, endh, num, device=device)
+        verss, horss = torch.meshgrid(vers, hors, indexing='ij')
+        verss = verss.flatten()
+        horss = horss.flatten()
+        
+        num_views = len(verss)
+        best_loss = float('inf')
+        best_elev, best_azim = 0.0, 0.0
         
         # Chunk to save VRAM
         for i in range(0, num_views, batch_size):
-            chunk_elevs = elevs_flat[i:i+batch_size]
-            chunk_azims = azims_flat[i:i+batch_size]
+            chunk_elevs = verss[i:i+batch_size]
+            chunk_azims = horss[i:i+batch_size]
             actual_batch_size = len(chunk_elevs)
             
             R, T = look_at_view_transform(
@@ -176,55 +193,58 @@ def find_best_reference_pov(pcd, device, depth_weight=0.5):
             cameras = PerspectiveCameras(device=device, R=R, T=T)
             rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
             
-            # Extend PCD for the batch and rasterize (NO COLOR RENDERING NEEDED)
             pcd_batch = pcd.extend(actual_batch_size)
             fragments = rasterizer(pcd_batch)
-            
             idx_map = fragments.idx[..., 0] # (B, H, W)
-            z_map = fragments.zbuf[..., 0]  # (B, H, W)
+            
+            # ComPC's camera centers for posedist
+            cam_centers = cameras.get_camera_center() # (B, 3)
             
             for b in range(actual_batch_size):
                 valid_mask = idx_map[b] != -1
+                visible_indices = torch.unique(idx_map[b][valid_mask])
                 
-                # How many unique points can we actually see?
-                visible_points = torch.unique(idx_map[b][valid_mask]).shape[0]
-                coverage_ratio = visible_points / total_points
-                
-                # How close are they? (Normalize by distance so it scales well)
-                if visible_points > 0:
-                    mean_depth = z_map[b][valid_mask].mean() / distance
+                if len(visible_indices) > 0:
+                    # --- THE FIX: Map giant packed indices back to the original point cloud ---
+                    visible_indices = visible_indices % total_points
+                    
+                    visible_points = points[visible_indices] # (V, 3)
+                    
+                    # --- ComPC Metric 1: fixed_cd (Fidelity) ---
+                    # How far is EVERY point from the nearest VISIBLE point?
+                    dists, _, _ = knn_points(points.unsqueeze(0), visible_points.unsqueeze(0), K=1)
+                    fixed_cd = dists.squeeze().sqrt().mean() 
+                    
+                    # --- ComPC Metric 2: posedist ---
+                    # Mean distance from camera center to all points
+                    cen = cam_centers[b]
+                    posedist = (cen.unsqueeze(0) - points).square().sum(-1).sqrt().mean()
+                    
+                    # Minimize this loss
+                    loss = fixed_cd + (pose_w * posedist)
                 else:
-                    mean_depth = torch.tensor(float('inf'))
+                    loss = torch.tensor(float('inf'))
                 
-                # Maximize coverage, minimize depth
-                score = coverage_ratio - (depth_weight * mean_depth)
-                
-                if score > best_score:
-                    best_score = score
+                if loss < best_loss:
+                    best_loss = loss
                     best_elev = chunk_elevs[b].item()
                     best_azim = chunk_azims[b].item()
                     
             del pcd_batch, fragments, cameras, rasterizer
-            torch.cuda.empty_cache() # Keep the 4050 breathing
-            
-        return best_elev, best_azim
+            torch.cuda.empty_cache() 
 
-    # Broad sweep around the object
-    coarse_elevs, coarse_azims = torch.meshgrid(
-        torch.linspace(-80, 80, 9, device=device),  
-        torch.linspace(0, 330, 12, device=device), indexing='ij'
-    )
-    c_elev, c_azim = evaluate_grid(coarse_elevs, coarse_azims)
+        # Update bounds for the next loop (fine search) exactly like ComPC
+        interv = (endv - startv) / num
+        interh = (endh - starth) / num
 
-    # Drill down around the best coarse angle (+/- 15 degrees)
-    fine_elevs, fine_azims = torch.meshgrid(
-        torch.linspace(c_elev - 15, c_elev + 15, 7, device=device),
-        torch.linspace(c_azim - 15, c_azim + 15, 7, device=device), indexing='ij'
-    )
-    final_elev, final_azim = evaluate_grid(fine_elevs, fine_azims)
+        startv, endv = best_elev - interv, best_elev + interv
+        starth, endh = best_azim - interh, best_azim + interh
+        
+        best_final_elev = best_elev
+        best_final_azim = best_azim
 
-    print(f"Optimal POV Found -> Azimuth: {final_azim:.1f}°, Elevation: {final_elev:.1f}°")
-    return final_elev, final_azim
+    print(f"Optimal POV Found -> Azimuth: {best_final_azim:.1f}°, Elevation: {best_final_elev:.1f}°")
+    return best_final_elev, best_final_azim
 
 def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RESOLUTION):
     bbox = pcd.get_bounding_boxes()
