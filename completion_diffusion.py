@@ -1,4 +1,3 @@
-import gc
 import torch
 import numpy as np
 import math
@@ -11,13 +10,13 @@ import zero123_controlnet
 import clip
 import depth_estimation
 
-PROMPT_APPEND_ALWAYS = ", high quality, best quality"
-
+# IP_PROMPT_SCALE = 0.25
+# STRENGTH_IMG2IMG = 0.8
+# RESOLUTION = 512
+RESOLUTION = 320
 CONDITION_SCALE = 0.2
-IP_PROMPT_SCALE = 0.25
 DEFAULT_TEXT_PROMPT = ""
-STRENGTH_IMG2IMG = 0.8
-
+PROMPT_APPEND_ALWAYS = ", high quality, best quality"
 
 from pytorch3d.renderer import (
     look_at_view_transform,
@@ -30,15 +29,11 @@ import torchvision
 TPL = torchvision.transforms.ToPILImage
 tpl = TPL()
 
-
 device = torch.device("cuda")
-
 from datetime import datetime
 import os
 if not os.path.isdir("renders"):
     os.mkdir("renders")
-    
-
 
 import torch
 import torch.nn as nn
@@ -65,97 +60,164 @@ def get_grid(H, W, device):
     y_grid, x_grid = torch.meshgrid(y_range, x_range, indexing='ij')
     return torch.stack((x_grid, y_grid), dim=-1)
 
-from pytorch3d.ops import knn_points
+from PIL import Image
 
-def merge_and_color_pointclouds(existing_points, hallucinated_points, threshold=0.03):
+def create_zero123_depth_grid(depth_pils):
     """
-    Filters hallucinated points based on distance to existing points.
-    Returns combined points and RGB color features for visualization.
+    3x2 depth condition image arrangement
     """
-    # device = torch.device("cuda")
     
-    # Ensure points are 2D tensors [N, 3]
-    if existing_points.dim() == 3: existing_points = existing_points.squeeze(0)
-    if hallucinated_points.dim() == 3: hallucinated_points = hallucinated_points.squeeze(0)
-
-    # PyTorch3D knn_points expects batched inputs: [Batch, N, 3]
-    p1 = hallucinated_points.unsqueeze(0).cuda()
-    p2 = existing_points.unsqueeze(0).cuda()
-
-    # Find the single nearest neighbor in existing (p2) for each hallucinated point (p1)
-    # Note: knn_points returns SQUARED distances, so we must square our threshold!
-    dists, _, _ = knn_points(p1, p2, K=1)
-    sq_dists = dists.squeeze(0).squeeze(-1) # Shape: [num_hallucinated]
-
-    # Mask out points that are too close to the existing geometry
-    mask = sq_dists > (threshold ** 2)
-
-    hallucinated_points = hallucinated_points.cuda()
-    valid_new_points = hallucinated_points[mask]
+    grid = Image.new('RGB', (RESOLUTION*2, RESOLUTION*3))
+    positions = [
+        (0, 0), (RESOLUTION, 0),
+        (0, RESOLUTION), (RESOLUTION, RESOLUTION),
+        (0, RESOLUTION*2), (RESOLUTION, RESOLUTION*2)
+    ]
     
-    num_accepted = valid_new_points.shape[0]
-    print(f"Accepted {num_accepted} new points out of {hallucinated_points.shape[0]} (Threshold: {threshold})")
+    for img, pos in zip(depth_pils, positions):
+        grid.paste(img, pos)
+        
+    return grid
 
-    if num_accepted == 0:
-        print("No new points passed the distance threshold.")
-        valid_new_points = torch.empty((0, 3), device=device)
 
-    # --- COLOR ASSIGNMENT ---
-    # Colors in PyTorch3D are usually floats between 0.0 and 1.0
+def find_best_reference_pov(pcd, device, depth_weight=0.5):
+    """
+    Adapted from ComPC
+    Finds the optimal elevation and azimuth to view a partial point cloud.
+    Maximizes visible points (coverage) while minimizing average depth (closeness).
+    Optimized for 6GB VRAM using chunked pure-rasterization.
+    """
+    print("Searching for Canonical Front Face...")
     
-    # Existing points: Neutral Light Grey
-    existing_colors = torch.full_like(existing_points, 0.7) 
-    
-    # New points: Bright Green [R=0, G=1, B=0]
-    new_colors = torch.zeros_like(valid_new_points)
-    new_colors[:, 1] = 1.0 
+    bbox = pcd.get_bounding_boxes()
+    bbox_min = bbox.min(dim=-1).values[0]
+    bbox_max = bbox.max(dim=-1).values[0]
+    bbox_center = (bbox_min + bbox_max) / 2.0
+    distance = torch.sqrt(((bbox_max - bbox_min) ** 2).sum()) * 0.65
+    total_points = pcd.points_padded().shape[1]
 
-    # Combine them
-    combined_points = torch.cat([existing_points, valid_new_points], dim=0)
-    combined_colors = torch.cat([existing_colors, new_colors], dim=0)
+    # Use a low resolution. We only need point hits, not pretty pictures!
+    H, W = 128, 128 
+    raster_settings = PointsRasterizationSettings(
+        image_size=(H, W), radius=0.03, points_per_pixel=1
+    )
 
-    return combined_points, combined_colors
+    def evaluate_grid(elevations, azimuths, batch_size=16):
+        best_score = -float('inf')
+        best_elev, best_azim = 0.0, 0.0
+        
+        # Flatten the grids
+        elevs_flat = elevations.flatten()
+        azims_flat = azimuths.flatten()
+        num_views = len(elevs_flat)
+        
+        # Chunk to save VRAM
+        for i in range(0, num_views, batch_size):
+            chunk_elevs = elevs_flat[i:i+batch_size]
+            chunk_azims = azims_flat[i:i+batch_size]
+            actual_batch_size = len(chunk_elevs)
+            
+            R, T = look_at_view_transform(
+                dist=distance, elev=chunk_elevs, azim=chunk_azims, 
+                device=device, at=bbox_center.unsqueeze(0)
+            )
+            
+            cameras = PerspectiveCameras(device=device, R=R, T=T)
+            rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
+            
+            # Extend PCD for the batch and rasterize (NO COLOR RENDERING NEEDED)
+            pcd_batch = pcd.extend(actual_batch_size)
+            fragments = rasterizer(pcd_batch)
+            
+            idx_map = fragments.idx[..., 0] # (B, H, W)
+            z_map = fragments.zbuf[..., 0]  # (B, H, W)
+            
+            for b in range(actual_batch_size):
+                valid_mask = idx_map[b] != -1
+                
+                # How many unique points can we actually see?
+                visible_points = torch.unique(idx_map[b][valid_mask]).shape[0]
+                coverage_ratio = visible_points / total_points
+                
+                # How close are they? (Normalize by distance so it scales well)
+                if visible_points > 0:
+                    mean_depth = z_map[b][valid_mask].mean() / distance
+                else:
+                    mean_depth = torch.tensor(float('inf'))
+                
+                # Maximize coverage, minimize depth
+                score = coverage_ratio - (depth_weight * mean_depth)
+                
+                if score > best_score:
+                    best_score = score
+                    best_elev = chunk_elevs[b].item()
+                    best_azim = chunk_azims[b].item()
+                    
+            del pcd_batch, fragments, cameras, rasterizer
+            torch.cuda.empty_cache() # Keep the 4050 breathing
+            
+        return best_elev, best_azim
 
+    # Broad sweep around the object
+    coarse_elevs, coarse_azims = torch.meshgrid(
+        torch.linspace(-80, 80, 9, device=device),  
+        torch.linspace(0, 330, 12, device=device), indexing='ij'
+    )
+    c_elev, c_azim = evaluate_grid(coarse_elevs, coarse_azims)
 
-def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
+    # Drill down around the best coarse angle (+/- 15 degrees)
+    fine_elevs, fine_azims = torch.meshgrid(
+        torch.linspace(c_elev - 15, c_elev + 15, 7, device=device),
+        torch.linspace(c_azim - 15, c_azim + 15, 7, device=device), indexing='ij'
+    )
+    final_elev, final_azim = evaluate_grid(fine_elevs, fine_azims)
+
+    print(f"Optimal POV Found -> Azimuth: {final_azim:.1f}°, Elevation: {final_elev:.1f}°")
+    return final_elev, final_azim
+
+def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RESOLUTION):
     bbox = pcd.get_bounding_boxes()
     bbox_min = bbox.min(dim=-1).values[0]
     bbox_max = bbox.max(dim=-1).values[0]
     bb_diff = bbox_max - bbox_min
     bbox_center = (bbox_min + bbox_max) / 2.0
     
-    # distance
     scaling_factor = 0.65
     distance = torch.sqrt((bb_diff * bb_diff).sum())
     distance *= scaling_factor
     
-    # trajectory - NOT THE SAME AS IN DIFF3F ANYMORE
-    steps = int(math.sqrt(num_views))
-    if steps < 1: steps = 1
-    azimuth_end = 360 - 360/steps
-    azimuth = torch.linspace(start=0, end=azimuth_end, steps=steps)
-    azimuth = torch.repeat_interleave(azimuth, steps)
+    # --- ZERO123++ OFFSET LOGIC ---
+    # View 0 is our perfect Reference Image (no offset)
+    # Views 1-6 are the specific Zero123++ grid offsets
+    zero123_offsets = [
+        (0, 0),         # Reference Image (Index 0)
+        (30, -20),      # Grid Top-Left (Index 1)
+        (90, -20),      # Grid Top-Right (Index 2)
+        (150, -20),     # Grid Mid-Left (Index 3)
+        (210, 20),      # Grid Mid-Right (Index 4)
+        (270, 20),      # Grid Bot-Left (Index 5)
+        (330, 20)       # Grid Bot-Right (Index 6)
+    ]
     
-    # ELEVATION - now different
-    # elevation = torch.linspace(start=0, end=azimuth_end, steps=steps).repeat(steps)
-    elev_start, elev_end = 0, 80
-    elevation = torch.linspace(start=elev_start, end=elev_end, steps=steps).repeat(steps)
+    # Calculate final absolute angles by adding the baseline to the offsets
+    azimuths = [best_azim + az_off for az_off, el_off in zero123_offsets]
+    elevations = [best_elev + el_off for az_off, el_off in zero123_offsets]
     
-    # Calculate R, T
+    azimuths_tensor = torch.tensor(azimuths, dtype=torch.float32, device=device)
+    elevations_tensor = torch.tensor(elevations, dtype=torch.float32, device=device)
+    
+    # Calculate R, T for all 7 cameras simultaneously
     R, T = look_at_view_transform(
         dist=distance, 
-        elev=elevation, 
-        azim=azimuth, 
+        elev=elevations_tensor, 
+        azim=azimuths_tensor, 
         device=device, 
         at=bbox_center.unsqueeze(0)
     )
     
     cameras = PerspectiveCameras(device=device, R=R, T=T)
+    num_actual_views = R.shape[0] # Will be exactly 7
     
-    # Recalculate actual views (since sqrt might truncate)
-    num_actual_views = R.shape[0]
-
-
     raster_settings = PointsRasterizationSettings(
         image_size=(H, W), 
         radius=0.02,        
@@ -182,63 +244,15 @@ def render_with_pytorch3d(device, pcd, num_views, points, H=512, W=512):
     del fragments, pcd_batch #, pt_features
     return images, depth, cameras
 
-def ransac_depth_alignment(gt_vals, est_vals, num_iters=1000, inlier_thresh=0.05):
-    """
-    Robustly finds Scale (s) and Shift (t) using RANSAC to ignore flying pixels and edge noise.
-    """
-    best_inliers = 0
-    best_s, best_t = 1.0, 0.0
-
-    if len(gt_vals) < 2:
-        return best_s, best_t
-
-    # RANSAC Loop
-    for _ in range(num_iters):
-        # 1. Randomly sample 2 points to draw a line
-        idx = torch.randperm(len(gt_vals), device=gt_vals.device)[:2]
-        sample_gt = gt_vals[idx]
-        sample_est = est_vals[idx]
-
-        # 2. Solve for s and t: s = (y2 - y1) / (x2 - x1)
-        denom = sample_est[0] - sample_est[1]
-        if abs(denom) < 1e-6:
-            continue
-            
-        s = (sample_gt[0] - sample_gt[1]) / denom
-        t = sample_gt[0] - s * sample_est[0]
-
-        # 3. Calculate errors for ALL points
-        pred_gt = est_vals * s + t
-        errors = torch.abs(pred_gt - gt_vals)
-
-        # 4. Count inliers (how many pixels agree with this scale/shift?)
-        inliers = (errors < inlier_thresh).sum().item()
-
-        if inliers > best_inliers:
-            best_inliers = inliers
-            best_s = s
-            best_t = t
-            
-    # Polish: Run Least Squares ONLY on the verified inliers to get the absolute best fit
-    pred_gt = est_vals * best_s + best_t
-    inlier_mask = torch.abs(pred_gt - gt_vals) < inlier_thresh
-    
-    if inlier_mask.sum() > 2:
-        A = torch.vstack([est_vals[inlier_mask], torch.ones_like(est_vals[inlier_mask])]).T
-        solution = torch.linalg.lstsq(A, gt_vals[inlier_mask]).solution
-        best_s, best_t = solution[0].item(), solution[1].item()
-
-    return best_s, best_t
-
 
 def get_diffused_depth(
     pcd,
     path_append="",
     text_prompt = None,
-    num_views=50, H=512, W=512, 
+    num_views=50, H=RESOLUTION, W=RESOLUTION, 
 ):
     renders_dir = os.path.join("renders",
-    f"{path_append}im2im cond-{CONDITION_SCALE} ip-{IP_PROMPT_SCALE} str-{STRENGTH_IMG2IMG}")
+    f"usingZero123"+path_append)
     
     if not os.path.isdir(renders_dir):
         os.mkdir(renders_dir)    
@@ -252,48 +266,44 @@ def get_diffused_depth(
     # if points is None: 
     points = pcd.points_padded()[0]
 
-    print("Rendering...")
-    batched_imgs, depth, cameras = render_with_pytorch3d(device, pcd, num_views, points, H, W)
+    # SELECT BEST POINT OF VIEW!!!
+    # semanticity_model, semanticity_processor = clip.init_clip()
+
+    # best_pov_idx = -1
+    # best_dino_score = 0
+    # for idx in tqdm(range(len(batched_imgs)), desc="Finding best POV"):
+    #     img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
+    #     # dino_feat, dino_score, class_idx = get_dino_features_and_score(device, semanticity_model, img_rgb, score=USE_SCORE)
+    #     # del dino_feat, img_rgb, class_idx
+    #     semanticity_score = clip.clip_score(
+    #         semanticity_model, semanticity_processor, img_rgb,
+    #         prompt="horse, outline of a horse"+PROMPT_APPEND_ALWAYS)
+        
+    #     if semanticity_score > best_dino_score:
+    #         best_dino_score = semanticity_score
+    #         best_pov_idx = idx
+            
+    #     del semanticity_score
+    
+    # best_pov_image = batched_imgs[best_pov_idx].permute(2, 0, 1)
+    # best_pov_image = tpl(best_pov_image)
+    # del semanticity_model, semanticity_processor
+    
+    print("Best PoV according to filter on partial renders...")
+    best_elev, best_azim = find_best_reference_pov(pcd, device)
+
+    print("Actual Rendering...")
+    batched_imgs, depth, cameras = render_with_pytorch3d(device, pcd, best_elev, best_azim)
+    best_pov_image = batched_imgs[0].permute(2, 0, 1)
+    best_pov_image = tpl(best_pov_image)
+    best_pov_image.save(os.path.join(renders_dir, "REFERENCE.png"))
 
     ndc_grid = get_grid(H, W, device)
     pixel_coords_flat = ndc_grid.reshape(-1, 2) 
-
-    # SELECT BEST POINT OF VIEW!!!
-    semanticity_model, semanticity_processor = clip.init_clip()
-
-    best_pov_idx = -1
-    best_dino_score = 0
-    for idx in tqdm(range(len(batched_imgs)), desc="Finding best POV"):
-        img_rgb = batched_imgs[idx].permute(2, 0, 1).unsqueeze(0).to(device)
-        # dino_feat, dino_score, class_idx = get_dino_features_and_score(device, semanticity_model, img_rgb, score=USE_SCORE)
-        # del dino_feat, img_rgb, class_idx
-        semanticity_score = clip.clip_score(
-            semanticity_model, semanticity_processor, img_rgb,
-            prompt="horse, outline of a horse"+PROMPT_APPEND_ALWAYS)
-        
-        if semanticity_score > best_dino_score:
-            best_dino_score = semanticity_score
-            best_pov_idx = idx
-            
-        del semanticity_score
     
-    best_pov_image = batched_imgs[best_pov_idx].permute(2, 0, 1)
-    best_pov_image = tpl(best_pov_image)
-    del semanticity_model, semanticity_processor
-
-    # best_pov_image.save(f"diffrender/REFERENCE.png")
-    best_pov_image.save(os.path.join(renders_dir, "REFERENCE.png"))
-    
-    # ip_pipe = ip_controlnet.init_diffusion()
-    zero123_pipe = zero123_controlnet.init_diffusion(
-        conditioning_scale=CONDITION_SCALE
-    )
-
-
-    diffused_images = []
-    # DIFFUSION STEP 
-    for idx in tqdm(range(len(batched_imgs)), desc="Diffusion all POVs"):
-        
+    depth_images = []
+    # arrange depths in grid
+    for idx in tqdm(range(len(batched_imgs)), desc="Computing Depth"):
         current_depth = depth[idx].to(device).flatten().unsqueeze(1)
         valid_mask = current_depth.squeeze() > 0
         if valid_mask.sum() == 0:
@@ -328,52 +338,63 @@ def get_diffused_depth(
         else:
             depth_norm = torch.zeros_like(depth_2d)
 
+        # INVERT THE WHOLE THING DONT CARE
+        depth_norm = 1 - depth_norm
+
         depth_uint8 = (depth_norm * 255).cpu().numpy().astype(np.uint8)
         depth_rgb = np.stack([depth_uint8] * 3, axis=-1)
         
-        from PIL import Image
         depth_pil = Image.fromarray(depth_rgb)
         now = str(datetime.now()).replace(":", "-").replace(".", "-")
-        # controlnet_depth_pil.save(f"diffrender/{now}a.png")
+        # img_rgb = batched_imgs[idx].permute(2, 0, 1)
+        # current_pov = tpl(img_rgb)
+        # current_pov.save(os.path.join(renders_dir, f"{idx}b.png"))
+        
         depth_pil.save(os.path.join(renders_dir, f"{idx}a.png"))
+        depth_images.append(depth_pil)
 
-        img_rgb = batched_imgs[idx].permute(2, 0, 1)
-        current_pov = tpl(img_rgb)
-        current_pov.save(os.path.join(renders_dir, f"{idx}b.png"))
+
+    depth_grid = create_zero123_depth_grid(depth_images)
+    depth_grid.save(os.path.join(renders_dir, f"DEPTHGRID.png"))
+    
+    zero123_pipe = zero123_controlnet.init_diffusion(
+        conditioning_scale=CONDITION_SCALE
+    )
+
+    diffused_images = []
+    # DIFFUSION STEP 
         
-        output_image = zero123_controlnet.run_diffusion(
-            zero123_pipe,        
-            best_pov_image,       
-            depth_pil,
-            text_prompt=text_prompt,
-            # strength=STRENGTH_IMG2IMG
-        )
-        
-        # output_image.save(f"diffrender/{now}d.png")
-        output_image.save(os.path.join(renders_dir, f"{idx}d.png"))
-        
-        diffused_images.append(output_image)
-        
+    output_image = zero123_controlnet.run_diffusion(
+        zero123_pipe,        
+        best_pov_image,       
+        depth_grid,
+        text_prompt=text_prompt,
+    )
+    # output_image.save(f"diffrender/{now}d.png")
+    output_image.save(os.path.join(renders_dir, f"OUTPUTGRID.png"))
+    
     del batched_imgs, cameras, depth_rgb, depth
-    del ip_pipe
+    del zero123_pipe
+    del depth_images
+    
     
     depther = depth_estimation.init_depther()
         
-    for idx in tqdm(range(len(diffused_images)), desc="Extracting all depths"):
-        output_image = diffused_images[idx]
+    # for idx in tqdm(range(len(diffused_images)), desc="Extracting all depths"):
+    # output_image = diffused_images[idx]
+    
+    new_depth_tensor = depth_estimation.get_depth_map(depther, output_image)
+    min_d = new_depth_tensor.min()
+    max_d = new_depth_tensor.max()
+    if max_d > min_d:
+        new_depth_norm = (new_depth_tensor - min_d) / (max_d - min_d)
+        new_depth_norm = 1.0 - new_depth_norm
+    else:
+        new_depth_norm = torch.ones_like(new_depth_tensor)
         
-        new_depth_tensor = depth_estimation.get_depth_map(depther, output_image)
-        min_d = new_depth_tensor.min()
-        max_d = new_depth_tensor.max()
-        if max_d > min_d:
-            new_depth_norm = (new_depth_tensor - min_d) / (max_d - min_d)
-            new_depth_norm = 1.0 - new_depth_norm
-        else:
-            new_depth_norm = torch.ones_like(new_depth_tensor)
-            
-        new_depth_uint8 = (new_depth_norm * 255).byte()
-        new_depth_pil = tpl(new_depth_uint8)
-        new_depth_pil.save(os.path.join(renders_dir, f"{idx}e.png"))
+    new_depth_uint8 = (new_depth_norm * 255).byte()
+    new_depth_pil = tpl(new_depth_uint8)
+    new_depth_pil.save(os.path.join(renders_dir, f"REEXTRACTED_DEPTH.png"))
         
     print(f"Time taken: {(time() - t1) / 60:.2f} min")
     
@@ -398,31 +419,3 @@ if __name__ == "__main__":
     get_diffused_depth(partial_pcd, path_append=path_name,
         text_prompt="horse, complete horse, black background"
     )
-
-
-# if __name__ == "MVP":
-#     print("----------")
-#     print("----------")
-#     device = torch.device("cuda")
-#     mvp_file = "/home/gabrielnhn/datasets/MVP_Test_CP.h5"    
-#     TEST_INDEX = 9
-#     print(f"Loading Partial Point Cloud index {TEST_INDEX} from {mvp_file}")
-#     from pc_utils import load_mvp_to_pytorch3d 
-#     # Load the incomplete shape to run through your diffusion pipeline
-#     partial_pcd = load_mvp_to_pytorch3d(
-#         h5_filename=mvp_file, 
-#         index=TEST_INDEX, 
-#         load_complete=False # Give us the broken shape!
-#     )
-#     gt_pcd = load_mvp_to_pytorch3d(
-#         h5_filename=mvp_file, 
-#         index=TEST_INDEX, 
-#         load_complete=True # Give us the perfect shape!
-#     )
-#     save_pointcloud_with_features(gt_pcd, f"GROUND_TRUTH_COMPLETE_SHAPE_{TEST_INDEX}.ply")
-#     save_pointcloud_with_features(partial_pcd, f"GROUND_TRUTH_PARTIAL_SHAPE_{TEST_INDEX}.ply")
-#     path_name = f"MVP_index_{TEST_INDEX}"
-#     get_diffused_depth(partial_pcd, path_append=path_name,
-#                        text_prompt="horse, complete horse")
-    
-    
