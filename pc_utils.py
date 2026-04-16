@@ -151,7 +151,7 @@ def load_ply_to_pytorch3d(filepath):
     normals = raw_pcd.normals_padded()
     
     if features is None:
-        color = torch.tensor([1,1,1], device=device)
+        color = torch.tensor([0.5,0.35,0.005], device=device)
         features = color.view(1, 1, 3).expand_as(points)
         
     if normals is None:

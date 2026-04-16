@@ -49,8 +49,12 @@ class PhongCircleRenderer(nn.Module):
     Render circles with Blinn-Phong shading. 
     Requires precomputed fragments, packed normals, and camera positions.
     """
-    def __init__(self, background_color=(1.0, 1.0, 1.0), 
-                 ambient=0.3, diffuse=0.7, specular=0.2, shininess=32.0):
+    def __init__(self,
+                 background_color=(1.0, 1.0, 1.0), 
+                 ambient=0.3,
+                 diffuse=0.7,
+                 specular=0.2,
+                 shininess=32.0):
         super().__init__()
         self.compositor = AlphaCompositor(background_color=background_color)
         
