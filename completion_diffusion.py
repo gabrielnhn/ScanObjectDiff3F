@@ -6,7 +6,8 @@ from tqdm import tqdm
 from time import time
 
 from pc_utils import load_scanobjectnn_to_pytorch3d, save_pointcloud_with_features
-import ip_controlnet
+# import ip_controlnet
+import zero123_controlnet
 import clip
 import depth_estimation
 
@@ -283,7 +284,10 @@ def get_diffused_depth(
     # best_pov_image.save(f"diffrender/REFERENCE.png")
     best_pov_image.save(os.path.join(renders_dir, "REFERENCE.png"))
     
-    ip_pipe = ip_controlnet.init_diffusion()
+    # ip_pipe = ip_controlnet.init_diffusion()
+    zero123_pipe = zero123_controlnet.init_diffusion(
+        conditioning_scale=CONDITION_SCALE
+    )
 
 
     diffused_images = []
@@ -337,16 +341,12 @@ def get_diffused_depth(
         current_pov = tpl(img_rgb)
         current_pov.save(os.path.join(renders_dir, f"{idx}b.png"))
         
-        output_image = ip_controlnet.run_diffusion(
-            ip_pipe,        
+        output_image = zero123_controlnet.run_diffusion(
+            zero123_pipe,        
             best_pov_image,       
             depth_pil,
-            current_pov,
-            # depth_pil,
-            condition_scale=CONDITION_SCALE,
-            ip_prompt_scale=IP_PROMPT_SCALE,
             text_prompt=text_prompt,
-            strength=STRENGTH_IMG2IMG
+            # strength=STRENGTH_IMG2IMG
         )
         
         # output_image.save(f"diffrender/{now}d.png")

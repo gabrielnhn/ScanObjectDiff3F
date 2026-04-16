@@ -35,7 +35,8 @@ def run_diffusion(pipe,
                   best_reference_image,
                   depth_map,
                   text_prompt,
-                  strength):
+                #   strength
+                  ):
     
     # reference pipeline call
     # def __call__(
@@ -52,10 +53,8 @@ def run_diffusion(pipe,
         depth_image=depth_map,
         prompt=text_prompt,
         # hopefully kwargs work
-        strength=strength,
-        num_samples=1,
-        num_inference_steps=50,
-        seed=42,
+        # strength=strength,
+        # seed=42,
         negative_prompt="background, lowres, details, watermark",        
     ).images[0]
     
