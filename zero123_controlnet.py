@@ -51,10 +51,7 @@ def run_diffusion(pipe,
     image = pipe(
         best_reference_image,
         depth_image=depth_map,
-        prompt=text_prompt,
-        # hopefully kwargs work
-        # strength=strength,
-        # seed=42,
+        # prompt=text_prompt,
         negative_prompt="background, lowres, details, watermark",        
     ).images[0]
     

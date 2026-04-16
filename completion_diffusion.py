@@ -14,7 +14,7 @@ import depth_estimation
 # STRENGTH_IMG2IMG = 0.8
 # RESOLUTION = 512
 RESOLUTION = 320
-CONDITION_SCALE = 0.5
+CONDITION_SCALE = 1.0
 DEFAULT_TEXT_PROMPT = ""
 PROMPT_APPEND_ALWAYS = ", high quality, best quality"
 
