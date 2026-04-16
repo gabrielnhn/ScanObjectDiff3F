@@ -14,7 +14,7 @@ import depth_estimation
 # STRENGTH_IMG2IMG = 0.8
 # RESOLUTION = 512
 RESOLUTION = 320
-CONDITION_SCALE = 0.2
+CONDITION_SCALE = 0.5
 DEFAULT_TEXT_PROMPT = ""
 PROMPT_APPEND_ALWAYS = ", high quality, best quality"
 
@@ -23,7 +23,8 @@ from pytorch3d.renderer import (
     PointsRasterizationSettings,
     PointsRasterizer,
     AlphaCompositor,
-    PerspectiveCameras
+    PerspectiveCameras,
+    FoVPerspectiveCameras
 )
 from pytorch3d.ops import knn_points
 
@@ -99,10 +100,9 @@ from PIL import Image
 
 def create_zero123_depth_grid(depth_pils):
     """
-    3x2 depth condition image arrangement
+    3x2 depth condition image arrangement with RGBA transparency support
     """
-    
-    grid = Image.new('RGB', (RESOLUTION*2, RESOLUTION*3))
+    grid = Image.new('RGBA', (RESOLUTION*2, RESOLUTION*3), (0, 0, 0, 0))
     positions = [
         (0, 0), (RESOLUTION, 0),
         (0, RESOLUTION), (RESOLUTION, RESOLUTION),
@@ -110,7 +110,7 @@ def create_zero123_depth_grid(depth_pils):
     ]
     
     for img, pos in zip(depth_pils, positions):
-        grid.paste(img, pos)
+        grid.paste(img, pos, img)
         
     return grid
 
@@ -235,26 +235,34 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     bb_diff = bbox_max - bbox_min
     bbox_center = (bbox_min + bbox_max) / 2.0
     
-    scaling_factor = 0.65
+    # scaling_factor = 0.65
+    scaling_factor = 1.4
     distance = torch.sqrt((bb_diff * bb_diff).sum())
     distance *= scaling_factor
     
-    # --- ZERO123++ OFFSET LOGIC ---
-    # View 0 is our perfect Reference Image (no offset)
-    # Views 1-6 are the specific Zero123++ grid offsets
-    zero123_offsets = [
-        (0, 0),         # Reference Image (Index 0)
-        (30, -20),      # Grid Top-Left (Index 1)
-        (90, -20),      # Grid Top-Right (Index 2)
-        (150, -20),     # Grid Mid-Left (Index 3)
-        (210, 20),      # Grid Mid-Right (Index 4)
-        (270, 20),      # Grid Bot-Left (Index 5)
-        (330, 20)       # Grid Bot-Right (Index 6)
+    # --- ZERO123++ v1.1 CAMERA SPECS ---
+    # 1. Azimuths are RELATIVE (+30, +90...)
+    # 2. Elevations are ABSOLUTE (20, -10, 20, -10...)
+    
+    azimuths = [
+        best_azim,           # Index 0: Reference Image
+        best_azim + 30.0,    # Index 1: Grid Top-Left
+        best_azim + 90.0,    # Index 2: Grid Top-Right
+        best_azim + 150.0,   # Index 3: Grid Mid-Left
+        best_azim + 210.0,   # Index 4: Grid Mid-Right
+        best_azim + 270.0,   # Index 5: Grid Bot-Left
+        best_azim + 330.0    # Index 6: Grid Bot-Right
     ]
     
-    # Calculate final absolute angles by adding the baseline to the offsets
-    azimuths = [best_azim + az_off for az_off, el_off in zero123_offsets]
-    elevations = [best_elev + el_off for az_off, el_off in zero123_offsets]
+    elevations = [
+        best_elev,           # Index 0: Reference Image
+        20.0,                # Index 1: Grid Top-Left
+        -10.0,               # Index 2: Grid Top-Right
+        20.0,                # Index 3: Grid Mid-Left
+        -10.0,               # Index 4: Grid Mid-Right
+        20.0,                # Index 5: Grid Bot-Left
+        -10.0                # Index 6: Grid Bot-Right
+    ]
     
     azimuths_tensor = torch.tensor(azimuths, dtype=torch.float32, device=device)
     elevations_tensor = torch.tensor(elevations, dtype=torch.float32, device=device)
@@ -268,7 +276,8 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
         at=bbox_center.unsqueeze(0)
     )
     
-    cameras = PerspectiveCameras(device=device, R=R, T=T)
+    # Apply the mandatory FOV of 30.0 (PyTorch3D default is 60.0!)
+    cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=30.0)
     num_actual_views = R.shape[0] # Will be exactly 7
     
     raster_settings = PointsRasterizationSettings(
@@ -280,21 +289,18 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    renderer = PhongCircleRenderer(
-        # background_color=(0,0,0)
-        background_color=(1,1,1)
-                              ).to(device)
+    renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
 
     pcd_batch = pcd.extend(num_actual_views)
 
-    # do the rendering
     fragments = rasterizer(pcd_batch)
     images = renderer(fragments, pcd_batch).cpu()
 
     depth = fragments.zbuf[..., 0].cpu()
     valid_mask = (fragments.idx[..., 0] != -1).cpu()
     depth[~valid_mask] = -1
-    del fragments, pcd_batch #, pt_features
+    del fragments, pcd_batch 
+    
     return images, depth, cameras
 
 
@@ -356,11 +362,12 @@ def get_diffused_depth(
     
     depth_images = []
     # arrange depths in grid
-    for idx in tqdm(range(len(batched_imgs)), desc="Computing Depth"):
+    for idx in tqdm(range(1,len(batched_imgs)), desc="Computing Depth"):
         current_depth = depth[idx].to(device).flatten().unsqueeze(1)
         valid_mask = current_depth.squeeze() > 0
         if valid_mask.sum() == 0:
             print("No valid pixels(???)")
+            depth_images.append(Image.new('RGBA', (W, H), (0, 0, 0, 0)))
             continue
             
         xy_depth_valid = torch.cat((
@@ -375,35 +382,32 @@ def get_diffused_depth(
         depth_2d = depth[idx].clone() # Shape: (H, W)
         valid_mask_2d = depth_2d > 0
         
+        depth_norm = torch.zeros_like(depth_2d)
+        alpha_mask = torch.zeros_like(depth_2d, dtype=torch.uint8)
+        
         if valid_mask_2d.sum() > 0:
             min_depth = depth_2d[valid_mask_2d].min()
             max_depth = depth_2d[valid_mask_2d].max()
             
             if max_depth > min_depth:
-                # Normalize to [0, 1]
-                depth_norm = (depth_2d - min_depth) / (max_depth - min_depth)
-                # Invert for MiDaS style: Closer = 1.0 (White), Farther = 0.0 (Black)
-                depth_norm = 1.0 - depth_norm
+                # In PyTorch3D, smaller Z is closer. 
+                # (depth - min) / (max - min) makes Close = 0.0 (Black), Far = 1.0 (White).
+                depth_norm[valid_mask_2d] = (depth_2d[valid_mask_2d] - min_depth) / (max_depth - min_depth)
             else:
-                depth_norm = torch.ones_like(depth_2d)
+                depth_norm[valid_mask_2d] = 0.5
                 
-            depth_norm[~valid_mask_2d] = 0.0
-        else:
-            depth_norm = torch.zeros_like(depth_2d)
+            # Set alpha to 255 (fully opaque) where the object exists
+            alpha_mask[valid_mask_2d] = 255
 
-        # INVERT THE WHOLE THING DONT CARE
-        depth_norm = 1 - depth_norm
-
+        # Convert to uint8
         depth_uint8 = (depth_norm * 255).cpu().numpy().astype(np.uint8)
-        depth_rgb = np.stack([depth_uint8] * 3, axis=-1)
+        alpha_uint8 = alpha_mask.cpu().numpy()
         
-        depth_pil = Image.fromarray(depth_rgb)
-        now = str(datetime.now()).replace(":", "-").replace(".", "-")
-        # img_rgb = batched_imgs[idx].permute(2, 0, 1)
-        # current_pov = tpl(img_rgb)
-        # current_pov.save(os.path.join(renders_dir, f"{idx}b.png"))
+        # Stack into a 4-channel RGBA image
+        depth_rgba = np.stack([depth_uint8, depth_uint8, depth_uint8, alpha_uint8], axis=-1)
         
-        depth_pil.save(os.path.join(renders_dir, f"{idx}a.png"))
+        depth_pil = Image.fromarray(depth_rgba, mode='RGBA')
+        depth_pil.save(os.path.join(renders_dir, f"{idx}_depth.png"))
         depth_images.append(depth_pil)
 
 
@@ -426,7 +430,7 @@ def get_diffused_depth(
     # output_image.save(f"diffrender/{now}d.png")
     output_image.save(os.path.join(renders_dir, f"OUTPUTGRID.png"))
     
-    del batched_imgs, cameras, depth_rgb, depth
+    del batched_imgs, cameras, depth_rgba, depth
     del zero123_pipe
     del depth_images
     
