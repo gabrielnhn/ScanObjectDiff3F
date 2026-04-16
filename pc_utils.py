@@ -137,11 +137,13 @@ def load_mvp_to_pytorch3d(h5_filename, index=0, load_complete=False):
     
     return pcd #, labels_np
 
+
+
+from pytorch3d.ops import estimate_pointcloud_normals
 def load_ply_to_pytorch3d(filepath):
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Could not find PLY file at: {filepath}")
 
-    # PyTorch3D's native IO handles PLY parsing beautifully
     raw_pcd = IO().load_pointcloud(filepath, device=device)
     
     points = raw_pcd.points_padded()
@@ -149,19 +151,22 @@ def load_ply_to_pytorch3d(filepath):
     normals = raw_pcd.normals_padded()
     
     if features is None:
-        # Create a brown color tensor [R, G, B]
-        brown_color = torch.tensor([0.54, 0.27, 0.07], device=device)
-
-        # points is shape (B, N, 3) due to points_padded().
-        # We use .view() to make brown_color (1, 1, 3) and .expand_as() 
-        # to effortlessly copy it across the Batch and N dimensions.
-        features = brown_color.view(1, 1, 3).expand_as(points)        
+        color = torch.tensor([1,1,1], device=device)
+        features = color.view(1, 1, 3).expand_as(points)
         
-    # Re-pack it safely
+    if normals is None:
+        print("No normals found. Computing them via PyTorch3D local PCA...")
+        # Neighborhood size is the 'k' in k-nearest neighbors. 30 to 50 is standard.
+        normals = estimate_pointcloud_normals(
+            points, 
+            neighborhood_size=30, 
+            disambiguate_directions=True # Crucial: forces normals to face "outward" consistently
+        )
+        
     safe_pcd = Pointclouds(
         points=points,
         features=features,
-        normals=normals if normals is not None else None
+        normals=normals
     )
     
     return safe_pcd

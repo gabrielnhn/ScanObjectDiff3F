@@ -39,20 +39,67 @@ import torch
 import torch.nn as nn
 from pytorch3d.renderer import AlphaCompositor
 
-class CircleRenderer(nn.Module):
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from pytorch3d.renderer import AlphaCompositor
+
+class PhongCircleRenderer(nn.Module):
     """
-    Render circles, not spheres, requires precomputed fragments
+    Render circles with Blinn-Phong shading. 
+    Requires precomputed fragments, packed normals, and camera positions.
     """
-    def __init__(self, background_color=(1.0, 1.0, 1.0)):
+    def __init__(self, background_color=(1.0, 1.0, 1.0), 
+                 ambient=0.3, diffuse=0.7, specular=0.2, shininess=32.0):
         super().__init__()
         self.compositor = AlphaCompositor(background_color=background_color)
+        
+        # Phong material properties
+        self.ambient = ambient
+        self.diffuse = diffuse
+        self.specular = specular
+        self.shininess = shininess
 
-    def forward(self, fragments, pcd_batch):
+    def forward(self, fragments, pcd_batch, cameras=None, light_dir=torch.tensor([0.0, 1.0, 1.0])):
         weights = (fragments.idx != -1).float().permute(0, 3, 1, 2)
         indices = fragments.idx.long().permute(0, 3, 1, 2)
-        features = pcd_batch.features_packed().permute(1, 0)
-        images = self.compositor(indices, weights, features)
+        
+        points = pcd_batch.points_packed()
+        features = pcd_batch.features_packed()
+        normals = pcd_batch.normals_packed()
+        
+        if normals is None:
+            raise ValueError("need normals")
+
+        light_dir = F.normalize(light_dir.to(points.device), p=2, dim=-1)
+
+        n_dot_l = torch.sum(normals * light_dir, dim=-1, keepdim=True)
+        diffuse_term = torch.clamp(n_dot_l, min=0.0)
+
+        specular_term = torch.zeros_like(diffuse_term)
+        if cameras is not None:
+            # Map batch camera centers to the packed points seamlessly
+            cloud_idx = pcd_batch.packed_to_cloud_idx()
+            cam_centers = cameras.get_camera_center()[cloud_idx]
+            
+            # Calculate View Direction (V) and Halfway Vector (H)
+            view_dir = F.normalize(cam_centers - points, p=2, dim=-1)
+            half_vec = F.normalize(light_dir + view_dir, p=2, dim=-1)
+            
+            n_dot_h = torch.sum(normals * half_vec, dim=-1, keepdim=True)
+            specular_term = torch.pow(torch.clamp(n_dot_h, min=0.0), self.shininess)
+
+        # Shaded Color = Base Color * (Ambient + Diffuse) + Specular Highlight
+        shaded_features = features * (self.ambient + self.diffuse * diffuse_term) + (self.specular * specular_term)
+        shaded_features = torch.clamp(shaded_features, 0.0, 1.0)
+
+        shaded_features = shaded_features.permute(1, 0)
+
+        images = self.compositor(indices, weights, shaded_features)
         return images.permute(0, 2, 3, 1)
+
+
+
 
 def get_grid(H, W, device):
     x_range = torch.linspace(1, -1, W, device=device) # X Flip
@@ -227,7 +274,7 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    renderer = CircleRenderer(
+    renderer = PhongCircleRenderer(
         # background_color=(0,0,0)
         background_color=(1,1,1)
                               ).to(device)
