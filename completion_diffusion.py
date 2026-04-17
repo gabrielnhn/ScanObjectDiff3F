@@ -9,7 +9,7 @@ import zero123_diffusion
 
 RESOLUTION = 320
 DEFAULT_TEXT_PROMPT = ""
-PROMPT_APPEND_ALWAYS = ", high quality, best quality"
+PROMPT_APPEND_ALWAYS = ", realistic, high quality, best quality"
 
 from pytorch3d.renderer import (
     look_at_view_transform,
@@ -21,6 +21,9 @@ from pytorch3d.renderer import (
 )
 from pytorch3d.ops import knn_points
 
+
+from renderers import PhongCircleRenderer, NormalsRenderer
+
 import torchvision
 TPL = torchvision.transforms.ToPILImage
 tpl = TPL()
@@ -29,40 +32,6 @@ device = torch.device("cuda")
 
 if not os.path.isdir("renders"):
     os.mkdir("renders")
-
-import torch.nn as nn
-import torch.nn.functional as F
-
-class PhongCircleRenderer(nn.Module):
-    """ Render circles with Blinn-Phong shading. """
-    def __init__(self, background_color=(1.0, 1.0, 1.0), ambient=0.6, diffuse=0.8):
-        super().__init__()
-        self.compositor = AlphaCompositor(background_color=background_color)
-        self.ambient = ambient
-        self.diffuse = diffuse
-
-    def forward(self, fragments, pcd_batch, cameras=None, light_dir=torch.tensor([0.0, 1.0, 1.0])):
-        weights = (fragments.idx != -1).float().permute(0, 3, 1, 2)
-        indices = fragments.idx.long().permute(0, 3, 1, 2)
-        
-        points = pcd_batch.points_packed()
-        features = pcd_batch.features_packed()
-        normals = pcd_batch.normals_packed()
-        
-        if normals is None:
-            raise ValueError("need normals")
-
-        light_dir = F.normalize(light_dir.to(points.device), p=2, dim=-1)
-        n_dot_l = torch.sum(normals * light_dir, dim=-1, keepdim=True)
-        n_dot_l = torch.where(n_dot_l < 0, -n_dot_l, n_dot_l)
-                
-        diffuse_term = torch.clamp(n_dot_l, min=0.0)
-        shaded_features = features * (self.ambient + self.diffuse * diffuse_term)
-        shaded_features = torch.clamp(shaded_features, 0.0, 1.0)
-        shaded_features = shaded_features.permute(1, 0)
-
-        images = self.compositor(indices, weights, shaded_features)
-        return images.permute(0, 2, 3, 1)
 
 
 def find_best_reference_pov(pcd, device, pose_w=0.5):
@@ -163,7 +132,12 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     fragments = rasterizer(pcd)
     images = renderer(fragments, pcd).cpu()
     
-    return images
+    # Extract raw Z-buffer depth and mask invalid pixels
+    depth = fragments.zbuf[..., 0].cpu()
+    valid_mask = (fragments.idx[..., 0] != -1).cpu()
+    depth[~valid_mask] = -1
+    
+    return images, depth
 
 
 def get_diffused_depth(pcd, path_append="", text_prompt=None):
@@ -180,19 +154,66 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     print("Finding optimal reference viewpoint...")
     best_elev, best_azim = find_best_reference_pov(pcd, device)
 
-    print("Rendering PyTorch3D Reference Image...")
-    batched_imgs = render_with_pytorch3d(device, pcd, best_elev, best_azim)
+    print("Rendering PyTorch3D Reference Image and Depth...")
+    # Unpack both the images and the depth tensor
+    batched_imgs, depth_tensor = render_with_pytorch3d(device, pcd, best_elev, best_azim)
+    
     best_pov_image = batched_imgs[0].permute(2, 0, 1)
     best_pov_image = tpl(best_pov_image)
-    best_pov_image.save(os.path.join(renders_dir, "REFERENCE.png"))
+    best_pov_image.save(os.path.join(renders_dir, "REFERENCE(C).png"))
 
+    current_depth = depth_tensor[0] # Shape: (H, W)
+    valid_mask = current_depth > 0
+
+    depth_norm = torch.zeros_like(current_depth)
+
+    if valid_mask.sum() > 0:
+        min_depth = current_depth[valid_mask].min()
+        max_depth = current_depth[valid_mask].max()
+        
+        if max_depth > min_depth:
+            normalized = (current_depth[valid_mask] - min_depth) / (max_depth - min_depth)
+            
+            depth_norm[valid_mask] = 1.0 - normalized
+            
+            # Optional: Add a slight minimum brightness to the furthest valid point 
+            # so the object doesn't blend perfectly into the black background
+            depth_norm[valid_mask] = 0.2 + (depth_norm[valid_mask] * 0.8)
+        else:
+            depth_norm[valid_mask] = 0.5 # Fallback if perfectly flat
+
+    depth_uint8 = (depth_norm * 255).byte().cpu().numpy()
+    
+    from PIL import Image
+    depth_pil = Image.fromarray(depth_uint8, mode='L').convert('RGB')
+    depth_pil.save(os.path.join(renders_dir, "REFERENCE_DEPTH.png"))
+
+    # import common_controlnet
+    # completed_prior_image = common_controlnet.run_diffusion(
+    #     text_prompt=text_prompt, 
+    #     depth_image=depth_pil, 
+    #     conditioning_scale=0.80 
+    # )
+    import ip_controlnet
+    ip_pipeline = ip_controlnet.init_diffusion()
+    completed_prior_image = ip_controlnet.run_diffusion(
+        ip_pipeline, best_pov_image, depth_pil, best_pov_image,
+        condition_scale=0.8, ip_prompt_scale=0.15,
+        text_prompt=text_prompt, strength=0.9
+    )
+    del ip_pipeline
+    torch.cuda.empty_cache()
+    
+    
+    
+    completed_prior_image.save(os.path.join(renders_dir, "REFERENCE_PRIOR.png"))
+    
     # DIFFUSION STEP
-    # base_pipe, normal_pipe = zero123_diffusion.init_pipelines()
     
     genimg, normalimg = zero123_diffusion.run_diffusion(
         # base_pipe,        
         # normal_pipe,
-        best_pov_image,       
+        completed_prior_image,       
         text_prompt=text_prompt,
     )
     
@@ -209,12 +230,14 @@ if __name__ == "__main__":
     print("----------")
     device = torch.device("cuda")
     dataset_path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj"    
-    object = "horse.ply"
+    # object = "horse.ply"
+    object = "stanford-bunny.ply"
+    
     
     from pc_utils import load_ply_to_pytorch3d 
     partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object))
     
     path_name = f"RedWood"
     get_diffused_depth(partial_pcd, path_append=path_name,
-        text_prompt="horse, complete horse"
+        text_prompt="bunny"
     )
