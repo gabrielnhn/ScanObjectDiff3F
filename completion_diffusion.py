@@ -35,7 +35,7 @@ if not os.path.isdir("renders"):
 
 
 def find_best_reference_pov(pcd, device, pose_w=0.5):
-    print("Searching for Canonical Front Face (ComPC Metric)...")
+    """adapted from compc"""
     points = pcd.points_padded()[0]
     total_points = points.shape[0]
     
@@ -54,7 +54,6 @@ def find_best_reference_pov(pcd, device, pose_w=0.5):
     best_final_elev, best_final_azim = 0.0, 0.0
 
     for j in range(2):
-        print(f"  -> Running Search Pass {j+1}/2...")
         vers = torch.linspace(startv, endv, num, device=device)
         hors = torch.linspace(starth, endh, num, device=device)
         verss, horss = torch.meshgrid(vers, hors, indexing='ij')
@@ -125,14 +124,13 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     
     cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=30.0)
     
-    raster_settings = PointsRasterizationSettings(image_size=(H, W), radius=0.02, points_per_pixel=1, bin_size=0)
+    raster_settings = PointsRasterizationSettings(image_size=(H, W), radius``=0.02, points_per_pixel=1, bin_size=0)
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
     renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
     fragments = rasterizer(pcd)
     images = renderer(fragments, pcd).cpu()
     
-    # Extract raw Z-buffer depth and mask invalid pixels
     depth = fragments.zbuf[..., 0].cpu()
     valid_mask = (fragments.idx[..., 0] != -1).cpu()
     depth[~valid_mask] = -1
@@ -151,62 +149,65 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     
     t1 = time()
 
-    print("Finding optimal reference viewpoint...")
-    best_elev, best_azim = find_best_reference_pov(pcd, device)
+    # print("Finding optimal reference viewpoint...")
+    # best_elev, best_azim = find_best_reference_pov(pcd, device)
 
-    print("Rendering PyTorch3D Reference Image and Depth...")
-    # Unpack both the images and the depth tensor
-    batched_imgs, depth_tensor = render_with_pytorch3d(device, pcd, best_elev, best_azim)
+    # print("Rendering PyTorch3D Reference Image and Depth...")
+    # # Unpack both the images and the depth tensor
+    # batched_imgs, depth_tensor = render_with_pytorch3d(device, pcd, best_elev, best_azim)
     
-    best_pov_image = batched_imgs[0].permute(2, 0, 1)
-    best_pov_image = tpl(best_pov_image)
-    best_pov_image.save(os.path.join(renders_dir, "REFERENCE(C).png"))
+    # best_pov_image = batched_imgs[0].permute(2, 0, 1)
+    # best_pov_image = tpl(best_pov_image)
+    # best_pov_image.save(os.path.join(renders_dir, "REFERENCE(C).png"))
 
-    current_depth = depth_tensor[0] # Shape: (H, W)
-    valid_mask = current_depth > 0
+    # current_depth = depth_tensor[0] # Shape: (H, W)
+    # valid_mask = current_depth > 0
 
-    depth_norm = torch.zeros_like(current_depth)
+    # depth_norm = torch.zeros_like(current_depth)
 
-    if valid_mask.sum() > 0:
-        min_depth = current_depth[valid_mask].min()
-        max_depth = current_depth[valid_mask].max()
+    # if valid_mask.sum() > 0:
+    #     min_depth = current_depth[valid_mask].min()
+    #     max_depth = current_depth[valid_mask].max()
         
-        if max_depth > min_depth:
-            normalized = (current_depth[valid_mask] - min_depth) / (max_depth - min_depth)
+    #     if max_depth > min_depth:
+    #         normalized = (current_depth[valid_mask] - min_depth) / (max_depth - min_depth)
             
-            depth_norm[valid_mask] = 1.0 - normalized
+    #         depth_norm[valid_mask] = 1.0 - normalized
             
-            # Optional: Add a slight minimum brightness to the furthest valid point 
-            # so the object doesn't blend perfectly into the black background
-            depth_norm[valid_mask] = 0.2 + (depth_norm[valid_mask] * 0.8)
-        else:
-            depth_norm[valid_mask] = 0.5 # Fallback if perfectly flat
+    #         # Optional: Add a slight minimum brightness to the furthest valid point 
+    #         # so the object doesn't blend perfectly into the black background
+    #         depth_norm[valid_mask] = 0.2 + (depth_norm[valid_mask] * 0.8)
+    #     else:
+    #         depth_norm[valid_mask] = 0.5 # Fallback if perfectly flat
 
-    depth_uint8 = (depth_norm * 255).byte().cpu().numpy()
+    # depth_uint8 = (depth_norm * 255).byte().cpu().numpy()
     
-    from PIL import Image
-    depth_pil = Image.fromarray(depth_uint8, mode='L').convert('RGB')
-    depth_pil.save(os.path.join(renders_dir, "REFERENCE_DEPTH.png"))
+    # from PIL import Image
+    # depth_pil = Image.fromarray(depth_uint8, mode='L').convert('RGB')
+    # depth_pil.save(os.path.join(renders_dir, "REFERENCE_DEPTH.png"))
 
-    # import common_controlnet
-    # completed_prior_image = common_controlnet.run_diffusion(
-    #     text_prompt=text_prompt, 
-    #     depth_image=depth_pil, 
-    #     conditioning_scale=0.80 
+    # # import common_controlnet
+    # # completed_prior_image = common_controlnet.run_diffusion(
+    # #     text_prompt=text_prompt, 
+    # #     depth_image=depth_pil, 
+    # #     conditioning_scale=0.80 
+    # # )
+    # import ip_controlnet
+    # ip_pipeline = ip_controlnet.init_diffusion()
+    # completed_prior_image = ip_controlnet.run_diffusion(
+    #     ip_pipeline, best_pov_image, depth_pil, best_pov_image,
+    #     condition_scale=0.8, ip_prompt_scale=0.15,
+    #     text_prompt=text_prompt, strength=0.9
     # )
-    import ip_controlnet
-    ip_pipeline = ip_controlnet.init_diffusion()
-    completed_prior_image = ip_controlnet.run_diffusion(
-        ip_pipeline, best_pov_image, depth_pil, best_pov_image,
-        condition_scale=0.8, ip_prompt_scale=0.15,
-        text_prompt=text_prompt, strength=0.9
-    )
-    del ip_pipeline
-    torch.cuda.empty_cache()
+    # del ip_pipeline
+    # torch.cuda.empty_cache()
     
     
     
-    completed_prior_image.save(os.path.join(renders_dir, "REFERENCE_PRIOR.png"))
+    # completed_prior_image.save(os.path.join(renders_dir, "REFERENCE_PRIOR.png"))
+    from PIL import Image
+    # completed_prior_image = Image.open("./manual-bunny.png")
+    completed_prior_image = Image.open("./totebag.png")
     
     # DIFFUSION STEP
     
@@ -216,13 +217,16 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
         completed_prior_image,       
         text_prompt=text_prompt,
     )
+
+    genimg.save(os.path.join(renders_dir, "COLORS_GRID.png"))
+    normalimg.save(os.path.join(renders_dir, "NORMALS_GRID.png"))
     
     from matting_postprocess import postprocess
     print("Running matting postprocess...")
     genimg, normalimg = postprocess(genimg, normalimg)
 
-    genimg.save(os.path.join(renders_dir, "COLORS_GRID.png"))
-    normalimg.save(os.path.join(renders_dir, "NORMALS_GRID.png"))
+    genimg.save(os.path.join(renders_dir, "COLORS_GRID_post.png"))
+    normalimg.save(os.path.join(renders_dir, "NORMALS_GRID_post.png"))
     
     print(f"Time taken: {(time() - t1) / 60:.2f} min")
     
