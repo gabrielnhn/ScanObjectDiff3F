@@ -124,7 +124,7 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     
     cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=30.0)
     
-    raster_settings = PointsRasterizationSettings(image_size=(H, W), radius``=0.02, points_per_pixel=1, bin_size=0)
+    raster_settings = PointsRasterizationSettings(image_size=(H, W), radius=0.02, points_per_pixel=1, bin_size=0)
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
     renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
@@ -149,65 +149,31 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     
     t1 = time()
 
-    # print("Finding optimal reference viewpoint...")
-    # best_elev, best_azim = find_best_reference_pov(pcd, device)
+    print("Finding optimal reference viewpoint...")
+    best_elev, best_azim = find_best_reference_pov(pcd, device)
 
-    # print("Rendering PyTorch3D Reference Image and Depth...")
-    # # Unpack both the images and the depth tensor
-    # batched_imgs, depth_tensor = render_with_pytorch3d(device, pcd, best_elev, best_azim)
+    print("Rendering PyTorch3D Reference Image and Depth...")
+    # Unpack both the images and the depth tensor
+    batched_imgs, depth_tensor = render_with_pytorch3d(device, pcd, best_elev, best_azim)
     
-    # best_pov_image = batched_imgs[0].permute(2, 0, 1)
-    # best_pov_image = tpl(best_pov_image)
-    # best_pov_image.save(os.path.join(renders_dir, "REFERENCE(C).png"))
-
-    # current_depth = depth_tensor[0] # Shape: (H, W)
-    # valid_mask = current_depth > 0
-
-    # depth_norm = torch.zeros_like(current_depth)
-
-    # if valid_mask.sum() > 0:
-    #     min_depth = current_depth[valid_mask].min()
-    #     max_depth = current_depth[valid_mask].max()
-        
-    #     if max_depth > min_depth:
-    #         normalized = (current_depth[valid_mask] - min_depth) / (max_depth - min_depth)
-            
-    #         depth_norm[valid_mask] = 1.0 - normalized
-            
-    #         # Optional: Add a slight minimum brightness to the furthest valid point 
-    #         # so the object doesn't blend perfectly into the black background
-    #         depth_norm[valid_mask] = 0.2 + (depth_norm[valid_mask] * 0.8)
-    #     else:
-    #         depth_norm[valid_mask] = 0.5 # Fallback if perfectly flat
-
-    # depth_uint8 = (depth_norm * 255).byte().cpu().numpy()
+    ref_rgb = batched_imgs[0].cpu().numpy()
+    ref_rgb = (ref_rgb * 255).astype(np.uint8)
     
-    # from PIL import Image
-    # depth_pil = Image.fromarray(depth_uint8, mode='L').convert('RGB')
-    # depth_pil.save(os.path.join(renders_dir, "REFERENCE_DEPTH.png"))
-
-    # # import common_controlnet
-    # # completed_prior_image = common_controlnet.run_diffusion(
-    # #     text_prompt=text_prompt, 
-    # #     depth_image=depth_pil, 
-    # #     conditioning_scale=0.80 
-    # # )
-    # import ip_controlnet
-    # ip_pipeline = ip_controlnet.init_diffusion()
-    # completed_prior_image = ip_controlnet.run_diffusion(
-    #     ip_pipeline, best_pov_image, depth_pil, best_pov_image,
-    #     condition_scale=0.8, ip_prompt_scale=0.15,
-    #     text_prompt=text_prompt, strength=0.9
-    # )
-    # del ip_pipeline
-    # torch.cuda.empty_cache()
+    ref_alpha = torch.zeros_like(depth_tensor[0], dtype=torch.uint8)
+    ref_alpha[depth_tensor[0] > 0] = 255
+    ref_alpha = ref_alpha.cpu().numpy()[..., None] # Add channel dimension
+    
+    ref_rgba = np.concatenate([ref_rgb, ref_alpha], axis=-1)
     
     
-    
-    # completed_prior_image.save(os.path.join(renders_dir, "REFERENCE_PRIOR.png"))
     from PIL import Image
+    best_pov_image = Image.fromarray(ref_rgba, mode='RGBA')
+    best_pov_image.save(os.path.join(renders_dir, "REFERENCE.png"))
+    completed_prior_image = best_pov_image
+
+    # completed_prior_image.save(os.path.join(renders_dir, "REFERENCE_PRIOR.png"))
     # completed_prior_image = Image.open("./manual-bunny.png")
-    completed_prior_image = Image.open("./totebag.png")
+    # completed_prior_image = Image.open("./totebag.png")
     
     # DIFFUSION STEP
     
@@ -215,7 +181,7 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
         # base_pipe,        
         # normal_pipe,
         completed_prior_image,       
-        text_prompt=text_prompt,
+        # text_prompt=text_prompt,
     )
 
     genimg.save(os.path.join(renders_dir, "COLORS_GRID.png"))
@@ -243,5 +209,5 @@ if __name__ == "__main__":
     
     path_name = f"RedWood"
     get_diffused_depth(partial_pcd, path_append=path_name,
-        text_prompt="bunny"
+        text_prompt=""
     )
