@@ -21,4 +21,4 @@ import trimesh
 # trimesh.load(f"GROUND_TRUTH_PARTIAL_SHAPE.ply").show()
 
 # trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
-trimesh.load(f"generated_shape_instantmesh.ply").show()
+trimesh.load(f"final_instantmesh_shape.ply").show()
