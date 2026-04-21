@@ -64,6 +64,12 @@ class FlexiCubesGeometry(Geometry):
         if indices is None:
             indices = self.indices
 
+        # what if float16
+        v_deformed_nx3 = v_deformed_nx3.float()
+        sdf_n = sdf_n.float()
+        if weight_n is not None:
+            weight_n = weight_n.float()
+
         verts, faces, v_reg_loss = self.fc(v_deformed_nx3, sdf_n, indices, self.grid_res,
                                             beta_fx12=weight_n[:, :12], alpha_fx8=weight_n[:, 12:20],
                                             gamma_f=weight_n[:, 20], training=is_training

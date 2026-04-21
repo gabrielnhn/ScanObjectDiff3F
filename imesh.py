@@ -2,6 +2,13 @@ from huggingface_hub import hf_hub_download
 import torch
 import os
 import sys
+
+from unittest.mock import MagicMock
+
+# TRICK PYTHON: Create a fake nvdiffrast module in memory
+sys.modules['nvdiffrast'] = MagicMock()
+sys.modules['nvdiffrast.torch'] = MagicMock()
+
 sys.path.append("./instantmesh")
 import models.lrm_mesh
 
@@ -29,7 +36,7 @@ model_ckpt_path = hf_hub_download(
 )
 
 
-model = models.lrm_mesh.InstantMesh()
+model = models.lrm_mesh.InstantMesh(grid_res=64)
 
 state_dict = torch.load(model_ckpt_path, map_location='cpu', weights_only=True)['state_dict']
 state_dict = {k[14:]: v for k, v in state_dict.items() if k.startswith('lrm_generator.') and 'source_camera' not in k}
@@ -38,6 +45,7 @@ model.load_state_dict(state_dict, strict=True)
 # Move to GPU and cast to Half-Precision (Cuts model memory in half)
 model = model.to(device, dtype=torch.float16)
 
+model.init_flexicubes_geometry(device)
 
 cameras = get_zero123plus_input_cameras()
 
@@ -76,7 +84,9 @@ cameras = get_zero123plus_input_cameras(batch_size=1, radius=4.0).to(device, dty
 
 with torch.inference_mode():
     planes = model.forward_planes(image_tensor, cameras)
-    mesh_v, mesh_f, _, _, _, _ = model.get_geometry_prediction(planes)
+    torch.cuda.empty_cache()
+    PACKED_OUTPUT = model.get_geometry_prediction(planes)
+    mesh_v = PACKED_OUTPUT[0]
     vertices = mesh_v[0] # Your point cloud!
 
 points = vertices.detach().cpu().numpy()

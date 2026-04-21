@@ -22,7 +22,7 @@ from .encoder.dino_wrapper import DinoWrapper
 from .decoder.transformer import TriplaneTransformer
 from .renderer.synthesizer_mesh import TriplaneSynthesizer
 from .geometry.camera.perspective_camera import PerspectiveCamera
-# from .geometry.render.neural_render import NeuralRender
+from .geometry.render.neural_render import NeuralRender
 from .geometry.rep_3d.flexicubes_geometry import FlexiCubesGeometry
 # from ..utils.mesh_util import xatlas_uvmap
 
@@ -79,16 +79,16 @@ class InstantMesh(nn.Module):
             samples_per_ray=rendering_samples_per_ray,
         )
 
-    # def init_flexicubes_geometry(self, device, fovy=50.0):
-    #     camera = PerspectiveCamera(fovy=fovy, device=device)
-    #     renderer = NeuralRender(device, camera_model=camera)
-    #     self.geometry = FlexiCubesGeometry(
-    #         grid_res=self.grid_res, 
-    #         scale=self.grid_scale, 
-    #         renderer=renderer, 
-    #         render_type='neural_render',
-    #         device=device,
-    #     )
+    def init_flexicubes_geometry(self, device, fovy=50.0):
+        camera = PerspectiveCamera(fovy=fovy, device=device)
+        renderer = NeuralRender(device, camera_model=camera)
+        self.geometry = FlexiCubesGeometry(
+            grid_res=self.grid_res, 
+            scale=self.grid_scale, 
+            renderer=renderer, 
+            render_type='neural_render',
+            device=device,
+        )
 
     def forward_planes(self, images, cameras):
         # images: [B, V, C_img, H_img, W_img]
