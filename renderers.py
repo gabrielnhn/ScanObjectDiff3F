@@ -47,27 +47,46 @@ class PhongCircleRenderer(nn.Module):
 class NormalsRenderer(nn.Module):
     """ 
     Render point clouds using their normal vectors as RGB colors. 
-    Follows the ComPC normal-to-color mapping strategy.
+    Dynamically orients normals towards the camera to eliminate PCA noise.
     """
-    def __init__(self, background_color=(1.0, 1.0, 1.0)):
+    def __init__(self, background_color=(1.0, 1.0, 1.0), cameras=None):
         super().__init__()
-        # You can change the default background to (0.5, 0.5, 0.5) if you want 
-        # the background to represent a perfectly flat/neutral normal.
         self.compositor = AlphaCompositor(background_color=background_color)
+        self.cameras = cameras
 
-    def forward(self, fragments, pcd_batch, cameras=None):
+
+    def forward(self, fragments, pcd_batch):
         weights = (fragments.idx != -1).float().permute(0, 3, 1, 2)
         indices = fragments.idx.long().permute(0, 3, 1, 2)
         
         normals = pcd_batch.normals_packed()
+        points = pcd_batch.points_packed() # We need the point locations
         
         if normals is None:
             raise ValueError("Point cloud must contain normals to render normal maps.")
 
+        # --- THE FIX: Orient normals towards the camera ---
+        cameras = self.cameras
+        if cameras is not None:
+            # Get the camera position (Assuming a batch size of 1 for simplicity)
+            cam_center = cameras.get_camera_center()[0] 
+            
+            # Vector pointing from the point to the camera
+            view_dir = cam_center.unsqueeze(0) - points
+            
+            # Dot product checks the angle between the normal and the view direction
+            dot_product = (normals * view_dir).sum(dim=-1, keepdim=True)
+            
+            # If dot product is negative, the normal is facing away from the camera. Flip it!
+            normals = torch.where(dot_product < 0, -normals, normals)
+
+        # flipping Y and Z???????????????????????????????
+        # normals[:, 1:] = 1 - normals[:, 1:] 
+
         # ComPC Strategy: Scale normals from [-1.0, 1.0] to [0.0, 1.0] for RGB
         scaled_normals = (normals + 1.0) / 2.0
         
-        # Clamp to ensure strict RGB bounds (handles minor floating point errors)
+        # Clamp to ensure strict RGB bounds
         scaled_normals = torch.clamp(scaled_normals, 0.0, 1.0)
         
         # PyTorch3D compositor expects features in shape (Channels, Points)

@@ -161,7 +161,8 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     bbox_max = bbox.max(dim=-1).values[0]
     bb_diff = bbox_max - bbox_min
     bbox_center = (bbox_min + bbox_max) / 2.0
-    distance = torch.sqrt((bb_diff * bb_diff).sum()) * 1.4
+    # distance = torch.sqrt((bb_diff * bb_diff).sum()) * 1.4
+    distance = torch.sqrt((bb_diff * bb_diff).sum()) * 0.75
     
     azimuths = [best_azim]
     elevations = [best_elev]
@@ -175,7 +176,9 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     raster_settings = PointsRasterizationSettings(image_size=(H, W), radius=0.02, points_per_pixel=1, bin_size=0)
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
+    # renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
+    renderer = NormalsRenderer(background_color=(0.5,0.5,0.5), cameras=cameras).to(device)
+    
     fragments = rasterizer(pcd)
     images = renderer(fragments, pcd).cpu()
     
@@ -226,11 +229,7 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     best_pov_image.save(os.path.join(renders_dir, "REFERENCE-post.png"))
     completed_prior_image = best_pov_image
 
-
     exit()
-
-
-
     # completed_prior_image.save(os.path.join(renders_dir, "REFERENCE_PRIOR.png"))
     # completed_prior_image = Image.open("./manual-bunny.png")
     # completed_prior_image = Image.open("./totebag.png")
