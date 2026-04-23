@@ -171,6 +171,11 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     best_pov_image.save(os.path.join(renders_dir, "REFERENCE.png"))
     completed_prior_image = best_pov_image
 
+
+    exit()
+
+
+
     # completed_prior_image.save(os.path.join(renders_dir, "REFERENCE_PRIOR.png"))
     # completed_prior_image = Image.open("./manual-bunny.png")
     # completed_prior_image = Image.open("./totebag.png")
