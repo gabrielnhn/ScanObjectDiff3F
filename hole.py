@@ -20,17 +20,29 @@ partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object)
 from pytorch3d.renderer import PointsRasterizationSettings, PointsRasterizer, PerspectiveCameras, look_at_view_transform
 from pytorch3d.ops import knn_points
 
-def find_best_reference_pov_contour(pcd, device, pose_w=0.5, hole_w=10.0):
+import torch
+import cv2 as cv
+import numpy as np
+import random
+from pytorch3d.renderer import PointsRasterizationSettings, PointsRasterizer, PerspectiveCameras, look_at_view_transform
+from pytorch3d.ops import knn_points
+
+def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=5.0):
+    """
+    Combines COMPC (Chamfer Distance + Depth Regularization) 
+    with OpenCV Depth-Edge Contour detection.
+    """
     points = pcd.points_padded()[0]
     total_points = points.shape[0]
     
+    # Calculate scene bounds for camera placement
     bbox = pcd.get_bounding_boxes()
     bbox_min = bbox.min(dim=-1).values[0]
     bbox_max = bbox.max(dim=-1).values[0]
     bbox_center = (bbox_min + bbox_max) / 2.0
     distance = torch.sqrt(((bbox_max - bbox_min) ** 2).sum()) * 0.65
 
-    # Raster settings
+    # Raster settings - image_size 512 for better contour precision
     image_size = 512
     raster_settings = PointsRasterizationSettings(
         image_size=image_size, 
@@ -52,6 +64,7 @@ def find_best_reference_pov_contour(pcd, device, pose_w=0.5, hole_w=10.0):
         
         best_loss = float('inf')
         best_elev, best_azim = 0.0, 0.0
+        best_img_to_save = None
         
         for i in range(0, len(verss), batch_size):
             chunk_elevs = verss[i:i+batch_size]
@@ -64,74 +77,74 @@ def find_best_reference_pov_contour(pcd, device, pose_w=0.5, hole_w=10.0):
             pcd_batch = pcd.extend(len(chunk_elevs))
             fragments = rasterizer(pcd_batch)
             
-            # --- Depth to OpenCV Integration ---
-            # fragments.zbuf shape: (B, H, W, K)
             depth_maps = fragments.zbuf[..., 0] 
             idx_map = fragments.idx[..., 0] 
             cam_centers = cameras.get_camera_center() 
             
             for b in range(len(chunk_elevs)):
-                # 1. Clean up Depth Map
-                # Replace the background (-1) with a value further than the max depth
-                d_map = depth_maps[b].clone()
-                mask = (d_map == -1)
-                max_d = d_map[~mask].max() if d_map[~mask].numel() > 0 else 1.0
-                d_map[mask] = max_d * 1.2 # Push background to the rear
+                valid_mask = idx_map[b] != -1
+                visible_indices = torch.unique(idx_map[b][valid_mask])
                 
-                # 2. Normalize to 8-bit for OpenCV
-                d_min, d_max = d_map.min(), d_map.max()
-                d_norm = (d_map - d_min) / (d_max - d_min + 1e-6)
-                d_img = (d_norm.cpu().numpy() * 255).astype(np.uint8)
-                
-                # 3. Detect Depth Edges (Canny or Sobel)
-                # This finds "holes" and sharp depth transitions
-                edges = cv.Canny(d_img, 50, 150)
-                
-                # Use findContours on the edges to identify "closed" loops (holes)
-                contours, _ = cv.findContours(edges, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-                
-                # Scoring: 
-                # - More contours = more fragmentation/occlusion (Higher Loss)
-                # - Total 'edge energy' = visual complexity
-                edge_score = len(contours) 
-                
-                loss = edge_score
+                if len(visible_indices) > 0:
+                    # --- 1. COMPC GEOMETRIC LOSS ---
+                    visible_indices = visible_indices % total_points
+                    visible_pts = points[visible_indices] 
+                    
+                    # Chamfer-like fidelity
+                    dists, _, _ = knn_points(points.unsqueeze(0), visible_pts.unsqueeze(0), K=1)
+                    fixed_cd = dists.squeeze().sqrt().mean() 
+                    
+                    # Pose distance regularization
+                    posedist = (cam_centers[b].unsqueeze(0) - points).square().sum(-1).sqrt().mean()
+                    
+                    # --- 2. DEPTH-EDGE CONTOUR LOSS ---
+                    d_map = depth_maps[b].clone()
+                    max_val = d_map[valid_mask].max() if valid_mask.any() else 1.0
+                    d_map[~valid_mask] = max_val * 1.2
+                    
+                    # Normalize for CV
+                    d_min, d_max = d_map.min(), d_map.max()
+                    d_norm = (d_map - d_min) / (d_max - d_min + 1e-6)
+                    d_img = (d_norm.cpu().numpy() * 255).astype(np.uint8)
+                    
+                    edges = cv.Canny(d_img, 50, 150)
+                    contours, _ = cv.findContours(edges, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
+                    edge_score = len(contours)
+                    
+                    # --- 3. TOTAL WEIGHTED LOSS ---
+                    # fixed_cd: completeness, posedist: closeness, edge_score: topology
+                    loss = fixed_cd + (pose_w * posedist) + (edge_w * edge_score)
+                else:
+                    loss = torch.tensor(float('inf'))
                 
                 if loss < best_loss:
                     best_loss = loss
                     best_elev = chunk_elevs[b].item()
                     best_azim = chunk_azims[b].item()
-                    best_contours = contours
-                    best_img = d_img
                     
-                # if j == 1:
-                    
-            # Cleanup to prevent OOM
+                    # Prepare debug image (convert to BGR for colorful contours)
+                    # color_img = cv.cvtColor(d_img, cv.COLOR_GRAY2BGR)
+                    # for cnt in contours:
+                    #     cv.drawContours(color_img, [cnt], -1, (random.randint(0,255), 
+                    #                                           random.randint(0,255), 
+                    #                                           random.randint(0,255)), 1)
+                    # best_img_to_save = color_img
+            
             del pcd_batch, fragments, cameras, rasterizer
             torch.cuda.empty_cache() 
 
-        # Update search grid for next iteration
+        # Hierarchical search update
         interv = (endv - startv) / num
         interh = (endh - starth) / num
         startv, endv = best_elev - interv, best_elev + interv
         starth, endh = best_azim - interh, best_azim + interh
         best_final_elev, best_final_azim = best_elev, best_azim
         
-        import random
-        image = best_img
-        for contour in contours:
-            image = cv.drawContours(d_img, contour,-1, (random.randint(0,255),
-                                        random.randint(0,255),
-                                        random.randint(0,255)), 1)
-        
-        cv.imwrite(f"reference_test/contour-{j}-{chunk_elevs[b].item()}{chunk_azims[b].item()}.jpg",
-                image)
+        # if best_img_to_save is not None:
+        #     cv.imwrite(f"reference_test/combined-{j}-{best_elev:.1f}-{best_azim:.1f}.jpg", best_img_to_save)
 
-
+    print(f"Optimal POV Found -> Azimuth: {best_final_azim:.1f}°, Elevation: {best_final_elev:.1f}°")
     return best_final_elev, best_final_azim
-
-
-a = find_best_reference_pov_contour(pcd=partial_pcd, device=device)
 
 
 def find_best_reference_pov_compc(pcd, device, pose_w=0.5, hole_w=10.0):
@@ -237,7 +250,7 @@ def find_best_reference_pov_compc(pcd, device, pose_w=0.5, hole_w=10.0):
     return best_final_elev, best_final_azim
 
 
-find_best_reference_pov_compc(partial_pcd, device)
+# find_best_reference_pov_compc(partial_pcd, device)
 
 # for file in l:
 #     if file.endswith(".py"):
