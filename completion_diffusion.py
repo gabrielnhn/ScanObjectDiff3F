@@ -152,6 +152,11 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     print("Finding optimal reference viewpoint...")
     best_elev, best_azim = find_best_reference_pov(pcd, device)
 
+    exit()
+    # 
+    # 
+    # 
+
     print("Rendering PyTorch3D Reference Image and Depth...")
     # Unpack both the images and the depth tensor
     batched_imgs, depth_tensor = render_with_pytorch3d(device, pcd, best_elev, best_azim)
