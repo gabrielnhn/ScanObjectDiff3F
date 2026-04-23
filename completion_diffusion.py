@@ -45,7 +45,7 @@ def find_best_reference_pov(pcd, device, pose_w=0.5):
     bbox_center = (bbox_min + bbox_max) / 2.0
     distance = torch.sqrt(((bbox_max - bbox_min) ** 2).sum()) * 0.65
 
-    raster_settings = PointsRasterizationSettings(image_size=(128, 128), radius=0.03, points_per_pixel=1)
+    raster_settings = PointsRasterizationSettings(image_size=RESOLUTION, radius=0.02, points_per_pixel=1)
 
     startv, endv = -80.0, 80.0
     starth, endh = -180.0, 180.0
@@ -122,7 +122,7 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
                                   azim=torch.tensor(azimuths, device=device), device=device, 
                                   at=bbox_center.unsqueeze(0))
     
-    cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=30.0)
+    cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=60.0)
     
     raster_settings = PointsRasterizationSettings(image_size=(H, W), radius=0.02, points_per_pixel=1, bin_size=0)
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
@@ -163,8 +163,9 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     
     ref_rgb = batched_imgs[0].cpu().numpy()
     ref_rgb = (ref_rgb * 255).astype(np.uint8)
-    ref_rgb.save(os.path.join(renders_dir, "REFERENCE-rgb.png"))
-    
+    import cv2
+    cv2.imwrite(os.path.join(renders_dir, "REFERENCE-rgb.png"), ref_rgb)
+        
     ref_alpha = torch.zeros_like(depth_tensor[0], dtype=torch.uint8)
     ref_alpha[depth_tensor[0] > 0] = 255
     ref_alpha = ref_alpha.cpu().numpy()[..., None] # Add channel dimension
