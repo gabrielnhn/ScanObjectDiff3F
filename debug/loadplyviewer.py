@@ -20,13 +20,13 @@ import trimesh
 # trimesh.load(f"GROUND_TRUTH_COMPLETE_SHAPE.ply").show()
 # trimesh.load(f"GROUND_TRUTH_PARTIAL_SHAPE.ply").show()
 
-# trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
 # trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/horse.ply").show()
 # trimesh.load(f"/home/gabrielnhn/LGM/workspace/gradio_output.ply").show()
 
-import os
-path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/"
-l = os.listdir(path)
-for file in l:
-    filepath = os.path.join(path, file)
-    trimesh.load(filepath).show()
+trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
+# import os
+# path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/"
+# l = os.listdir(path)
+# for file in l:
+#     filepath = os.path.join(path, file)
+#     trimesh.load(filepath).show()

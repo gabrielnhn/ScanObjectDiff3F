@@ -152,7 +152,7 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     print("Finding optimal reference viewpoint...")
     best_elev, best_azim = find_best_reference_pov(pcd, device)
 
-    exit()
+    # exit()
     # 
     # 
     # 
@@ -163,6 +163,7 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     
     ref_rgb = batched_imgs[0].cpu().numpy()
     ref_rgb = (ref_rgb * 255).astype(np.uint8)
+    ref_rgb.save(os.path.join(renders_dir, "REFERENCE-rgb.png"))
     
     ref_alpha = torch.zeros_like(depth_tensor[0], dtype=torch.uint8)
     ref_alpha[depth_tensor[0] > 0] = 255
@@ -173,7 +174,7 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     
     from PIL import Image
     best_pov_image = Image.fromarray(ref_rgba, mode='RGBA')
-    best_pov_image.save(os.path.join(renders_dir, "REFERENCE.png"))
+    best_pov_image.save(os.path.join(renders_dir, "REFERENCE-post.png"))
     completed_prior_image = best_pov_image
 
 
