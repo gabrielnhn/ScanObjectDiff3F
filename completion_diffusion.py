@@ -12,8 +12,6 @@ from pc_utils import load_scanobjectnn_to_pytorch3d, save_pointcloud_with_featur
 import zero123_diffusion
 
 RESOLUTION = 320
-DEFAULT_TEXT_PROMPT = ""
-PROMPT_APPEND_ALWAYS = ", realistic, high quality, best quality"
 
 from pytorch3d.renderer import (
     look_at_view_transform,
@@ -192,14 +190,10 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     return images, depth
 
 
-def get_diffused_depth(pcd, path_append="", text_prompt=None):
-    renders_dir = os.path.join("renders", f"usingZero123"+path_append)
+def get_diffused_depth(pcd, path_append=""):
+    renders_dir = os.path.join("renders", path_append)
     if not os.path.isdir(renders_dir):
         os.mkdir(renders_dir)    
-    
-    if text_prompt is None:
-        text_prompt = DEFAULT_TEXT_PROMPT
-    text_prompt += PROMPT_APPEND_ALWAYS
     
     t1 = time()
 
@@ -271,7 +265,7 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
 
     print("[INFO] Running ControlNet Depth to hallucinate RGB...")
     hallucinated_rgb = run_diffusion(
-        text_prompt=text_prompt, 
+        # text_prompt="An untextured object", 
         depth_image=depth_pil, 
         conditioning_scale=1.0
     )
@@ -317,7 +311,8 @@ if __name__ == "__main__":
     from pc_utils import load_ply_to_pytorch3d 
     partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object))
     
-    path_name = f"RedWood"
-    get_diffused_depth(partial_pcd, path_append=path_name,
-        text_prompt=""
+    path_name = f"DepthControlNetTest"
+    get_diffused_depth(partial_pcd,
+        path_append=path_name,
+        # text_prompt=""
     )

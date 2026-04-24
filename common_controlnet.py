@@ -6,7 +6,7 @@ from diffusers import (
     AutoencoderKL
 )
 
-def run_diffusion(text_prompt, depth_image, conditioning_scale=1.0):
+def run_diffusion(depth_image, conditioning_scale=1.0):
     vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse", torch_dtype=torch.float16)
     
     controlnet = ControlNetModel.from_pretrained(
@@ -26,13 +26,17 @@ def run_diffusion(text_prompt, depth_image, conditioning_scale=1.0):
 
     generator = torch.manual_seed(0)
     
+    
+    text_prompt = "A smooth 3D clay sculpture, matte gray plaster material, uniform texture, blank studio lighting, blank white background"
+    negative_prompt = "face, eyes, patterns, colors, noise, uneven, high contrast"
+    
     image = pipe(
         prompt=text_prompt,
         image=depth_image,           
         controlnet_conditioning_scale=conditioning_scale,
         num_inference_steps=30,
         generator=generator,
-        negative_prompt="background, watermark, lowres"
+        negative_prompt=negative_prompt
     ).images[0]
 
     del pipe
