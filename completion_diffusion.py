@@ -163,7 +163,7 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     bb_diff = bbox_max - bbox_min
     bbox_center = (bbox_min + bbox_max) / 2.0
     # distance = torch.sqrt((bb_diff * bb_diff).sum()) * 1.4
-    distance = torch.sqrt((bb_diff * bb_diff).sum()) * 0.75
+    distance = torch.sqrt((bb_diff * bb_diff).sum()) #* 0.75
     
     azimuths = [best_azim]
     elevations = [best_elev]
@@ -304,8 +304,8 @@ if __name__ == "__main__":
     print("----------")
     device = torch.device("cuda")
     dataset_path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj"    
-    # object = "horse.ply"
-    object = "stanford-bunny.ply"
+    object = "horse.ply"
+    # object = "stanford-bunny.ply"
     
     
     from pc_utils import load_ply_to_pytorch3d 
