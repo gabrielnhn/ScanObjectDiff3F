@@ -45,54 +45,41 @@ class PhongCircleRenderer(nn.Module):
 
 
 class NormalsRenderer(nn.Module):
-    """ 
-    Render point clouds using their normal vectors as RGB colors. 
-    Dynamically orients normals towards the camera to eliminate PCA noise.
-    """
-    def __init__(self, background_color=(1.0, 1.0, 1.0), cameras=None):
+    def __init__(self, background_color=(0.5, 0.5, 1.0), cameras=None):
         super().__init__()
+        # Use your Pyglet background color (Light Blue)
         self.compositor = AlphaCompositor(background_color=background_color)
         self.cameras = cameras
-
 
     def forward(self, fragments, pcd_batch):
         weights = (fragments.idx != -1).float().permute(0, 3, 1, 2)
         indices = fragments.idx.long().permute(0, 3, 1, 2)
         
-        normals = pcd_batch.normals_packed()
-        points = pcd_batch.points_packed() # We need the point locations
+        # 1. Get World Space Normals
+        normals = pcd_batch.normals_packed()  # (P, 3)
         
-        if normals is None:
-            raise ValueError("Point cloud must contain normals to render normal maps.")
+        # 2. Convert to Camera Space (Matches Pyglet's 'mv' transform)
+        # get_world_to_view_transform() gives the rotation the shader sees
+        w2v_mat = self.cameras.get_world_to_view_transform().get_matrix()[0, :3, :3]
+        normals_cam = torch.matmul(normals, w2v_mat)
 
-        # --- THE FIX: Orient normals towards the camera ---
-        cameras = self.cameras
-        if cameras is not None:
-            # Get the camera position (Assuming a batch size of 1 for simplicity)
-            cam_center = cameras.get_camera_center()[0] 
-            
-            # Vector pointing from the point to the camera
-            view_dir = cam_center.unsqueeze(0) - points
-            
-            # Dot product checks the angle between the normal and the view direction
-            dot_product = (normals * view_dir).sum(dim=-1, keepdim=True)
-            
-            # If dot product is negative, the normal is facing away from the camera. Flip it!
-            normals = torch.where(dot_product < 0, -normals, normals)
+        # 3. Orient toward camera (Eliminates the "Static" noise from PCA)
+        # In PyTorch3D Cam Space, Z+ is INTO the screen.
+        # If normal points away (Z > 0), flip it.
+        flip_mask = normals_cam[:, 2] > 0
+        normals_cam = torch.where(flip_mask.unsqueeze(1), -normals_cam, normals_cam)
 
-        # flipping Y and Z???????????????????????????????
-        # normals[:, 1:] = 1 - normals[:, 1:] 
+        # 4. Apply your Pyglet Shader Math exactly:
+        # float x = n.x * 0.5 + 0.5; y = 1 - (n.y * 0.5 + 0.5); z = 1 - (n.z * 0.5 + 0.5);
+        x = normals_cam[:, 0] * 0.5 + 0.5
+        y = 1.0 - (normals_cam[:, 1] * 0.5 + 0.5)
+        z = 1.0 - (normals_cam[:, 2] * 0.5 + 0.5)
 
-        # ComPC Strategy: Scale normals from [-1.0, 1.0] to [0.0, 1.0] for RGB
-        scaled_normals = (normals + 1.0) / 2.0
+        mapped_normals = torch.stack([x, y, z], dim=-1)
+        mapped_normals = torch.clamp(mapped_normals, 0.0, 1.0)
         
-        # Clamp to ensure strict RGB bounds
-        scaled_normals = torch.clamp(scaled_normals, 0.0, 1.0)
+        # 5. Composite
+        # permute(1, 0) makes it (Channels, Points) for the compositor
+        images = self.compositor(indices, weights, mapped_normals.permute(1, 0))
         
-        # PyTorch3D compositor expects features in shape (Channels, Points)
-        scaled_normals = scaled_normals.permute(1, 0)
-
-        images = self.compositor(indices, weights, scaled_normals)
-        
-        # Return in standard (Batch, Height, Width, Channels) format
         return images.permute(0, 2, 3, 1)

@@ -1,22 +1,19 @@
 import torch
 from diffusers import (
     ControlNetModel,
-    StableDiffusionControlNetPipeline, # <--- Back to Text-to-Image
+    StableDiffusionControlNetPipeline,
     UniPCMultistepScheduler,
     AutoencoderKL
 )
 
-def run_diffusion(text_prompt, depth_image, conditioning_scale=0.75):
-    # 1. Load the upgraded VAE (Crucial for good colors/textures from scratch)
+def run_diffusion(text_prompt, depth_image, conditioning_scale=1.0):
     vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse", torch_dtype=torch.float16)
     
-    # 2. Load the Depth ControlNet
     controlnet = ControlNetModel.from_pretrained(
         "lllyasviel/control_v11f1p_sd15_depth",
         torch_dtype=torch.float16
     )
     
-    # 3. Load the pure Text2Img Pipeline
     pipe = StableDiffusionControlNetPipeline.from_pretrained(
         "runwayml/stable-diffusion-v1-5",
         controlnet=controlnet,
@@ -29,11 +26,10 @@ def run_diffusion(text_prompt, depth_image, conditioning_scale=0.75):
 
     generator = torch.manual_seed(0)
     
-    # 4. Generate from pure noise + depth map
     image = pipe(
         prompt=text_prompt,
         image=depth_image,           
-        controlnet_conditioning_scale=conditioning_scale, # Default 1.0 is too strict for partial shapes
+        controlnet_conditioning_scale=conditioning_scale,
         num_inference_steps=30,
         generator=generator,
         negative_prompt="background, watermark, lowres"

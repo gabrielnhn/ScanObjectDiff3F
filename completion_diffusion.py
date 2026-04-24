@@ -4,6 +4,9 @@ import os
 from time import time
 from tqdm import tqdm
 import cv2 as cv
+from PIL import Image
+
+
 
 from pc_utils import load_scanobjectnn_to_pytorch3d, save_pointcloud_with_features
 import zero123_diffusion
@@ -176,8 +179,8 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     raster_settings = PointsRasterizationSettings(image_size=(H, W), radius=0.02, points_per_pixel=1, bin_size=0)
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    # renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
-    renderer = NormalsRenderer(background_color=(0.5,0.5,0.5), cameras=cameras).to(device)
+    renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
+    # renderer = NormalsRenderer(background_color=(0.5,0.5,0.5), cameras=cameras).to(device)
     
     fragments = rasterizer(pcd)
     images = renderer(fragments, pcd).cpu()
@@ -212,48 +215,96 @@ def get_diffused_depth(pcd, path_append="", text_prompt=None):
     # Unpack both the images and the depth tensor
     batched_imgs, depth_tensor = render_with_pytorch3d(device, pcd, best_elev, best_azim)
     
-    ref_rgb = batched_imgs[0].cpu().numpy()
-    ref_rgb = (ref_rgb * 255).astype(np.uint8)
-    import cv2
-    cv2.imwrite(os.path.join(renders_dir, "REFERENCE-rgb.png"), ref_rgb)
+    # ref_rgb = batched_imgs[0].cpu().numpy()
+    # ref_rgb = (ref_rgb * 255).astype(np.uint8)
+    # import cv2
+    # cv2.imwrite(os.path.join(renders_dir, "REFERENCE-rgb.png"), ref_rgb)
         
-    ref_alpha = torch.zeros_like(depth_tensor[0], dtype=torch.uint8)
-    ref_alpha[depth_tensor[0] > 0] = 255
-    ref_alpha = ref_alpha.cpu().numpy()[..., None] # Add channel dimension
+    # ref_alpha = torch.zeros_like(depth_tensor[0], dtype=torch.uint8)
+    # ref_alpha[depth_tensor[0] > 0] = 255
+    # ref_alpha = ref_alpha.cpu().numpy()[..., None] # Add channel dimension
     
-    ref_rgba = np.concatenate([ref_rgb, ref_alpha], axis=-1)
+    # ref_rgba = np.concatenate([ref_rgb, ref_alpha], axis=-1)
     
     
-    from PIL import Image
-    best_pov_image = Image.fromarray(ref_rgba, mode='RGBA')
-    best_pov_image.save(os.path.join(renders_dir, "REFERENCE-post.png"))
-    completed_prior_image = best_pov_image
+    # best_pov_image = Image.fromarray(ref_rgba, mode='RGBA')
+    # best_pov_image.save(os.path.join(renders_dir, "REFERENCE-post.png"))
+    # completed_prior_image = best_pov_image
 
-    exit()
+    # exit()
     # completed_prior_image.save(os.path.join(renders_dir, "REFERENCE_PRIOR.png"))
     # completed_prior_image = Image.open("./manual-bunny.png")
     # completed_prior_image = Image.open("./totebag.png")
     
     # DIFFUSION STEP
     
-    genimg, normalimg = zero123_diffusion.run_diffusion(
-        # base_pipe,        
-        # normal_pipe,
-        completed_prior_image,       
-        # text_prompt=text_prompt,
+    
+    from common_controlnet import run_diffusion
+    depth_2d = depth_tensor[0].clone().squeeze() # Shape: (H, W)
+    ref_alpha = torch.zeros_like(depth_2d, dtype=torch.uint8)
+    ref_alpha[depth_2d > 0] = 255
+    ref_alpha_np = ref_alpha.cpu().numpy()[..., None] # Shape: (H, W, 1)
+    
+    print("Formatting Depth Map for ControlNet...")
+    valid_mask_2d = depth_2d > 0
+    
+    if valid_mask_2d.sum() > 0:
+        min_depth = depth_2d[valid_mask_2d].min()
+        max_depth = depth_2d[valid_mask_2d].max()
+        
+        if max_depth > min_depth:
+            depth_norm = (depth_2d - min_depth) / (max_depth - min_depth)
+            depth_norm = 1.0 - depth_norm
+        else:
+            depth_norm = torch.ones_like(depth_2d)
+            
+        depth_norm[~valid_mask_2d] = 0.0
+    else:
+        print("[WARN] No valid pixels in depth map!")
+        depth_norm = torch.zeros_like(depth_2d)
+
+    depth_uint8 = (depth_norm * 255).cpu().numpy().astype(np.uint8)
+    depth_rgb = np.stack([depth_uint8] * 3, axis=-1)
+    depth_pil = Image.fromarray(depth_rgb)
+    
+    depth_pil.save(os.path.join(renders_dir, "REFERENCE-depth.png"))
+
+    print("[INFO] Running ControlNet Depth to hallucinate RGB...")
+    hallucinated_rgb = run_diffusion(
+        text_prompt=text_prompt, 
+        depth_image=depth_pil, 
+        conditioning_scale=1.0
     )
-
-    genimg.save(os.path.join(renders_dir, "COLORS_GRID.png"))
-    normalimg.save(os.path.join(renders_dir, "NORMALS_GRID.png"))
     
-    from matting_postprocess import postprocess
-    print("Running matting postprocess...")
-    genimg, normalimg = postprocess(genimg, normalimg)
-
-    genimg.save(os.path.join(renders_dir, "COLORS_GRID_post.png"))
-    normalimg.save(os.path.join(renders_dir, "NORMALS_GRID_post.png"))
+    # Save the raw ControlNet output
+    hallucinated_rgb.save(os.path.join(renders_dir, "REFERENCE-controlnet-raw.png"))
+    hallucinated_np = np.array(hallucinated_rgb)
+    final_rgba = np.concatenate([hallucinated_np, ref_alpha_np], axis=-1)
+    completed_prior_image = Image.fromarray(final_rgba, mode='RGBA')
+    completed_prior_image.save(os.path.join(renders_dir, "REFERENCE-post.png"))
+    # print(f"[INFO] Success! Completed in {time() - t1:.2f} seconds.")
     
-    print(f"Time taken: {(time() - t1) / 60:.2f} min")
+    
+    
+    
+    # genimg, normalimg = zero123_diffusion.run_diffusion(
+    #     # base_pipe,        
+    #     # normal_pipe,
+    #     completed_prior_image,       
+    #     # text_prompt=text_prompt,
+    # )
+
+    # genimg.save(os.path.join(renders_dir, "COLORS_GRID.png"))
+    # normalimg.save(os.path.join(renders_dir, "NORMALS_GRID.png"))
+    
+    # from matting_postprocess import postprocess
+    # print("Running matting postprocess...")
+    # genimg, normalimg = postprocess(genimg, normalimg)
+
+    # genimg.save(os.path.join(renders_dir, "COLORS_GRID_post.png"))
+    # normalimg.save(os.path.join(renders_dir, "NORMALS_GRID_post.png"))
+    
+    # print(f"Time taken: {(time() - t1) / 60:.2f} min")
     
 if __name__ == "__main__":
     print("----------")
