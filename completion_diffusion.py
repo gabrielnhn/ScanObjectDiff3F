@@ -36,7 +36,7 @@ if not os.path.isdir("renders"):
     os.mkdir("renders")
 
 
-def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.01):
+def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.03):
     """
     Combines COMPC (Chamfer Distance + Depth Regularization) 
     with OpenCV Depth-Edge Contour detection.
@@ -61,8 +61,9 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.01):
 
     startv, endv = -80.0, 80.0
     starth, endh = -180.0, 180.0
+    num = 50 
+    # num = 20 
     # num = 40 
-    num = 20 
     batch_size = 16
     best_final_elev, best_final_azim = 0.0, 0.0
 
@@ -177,13 +178,13 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     
     raster_settings = PointsRasterizationSettings(
         image_size=(H, W),
-        radius=0.005,
+        radius=0.01,
         points_per_pixel=1,
         bin_size=0)
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    # renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
-    renderer = NormalsRenderer(background_color=(0.5,0.5,0.5), cameras=cameras).to(device)
+    renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
+    # renderer = NormalsRenderer(background_color=(0.5,0.5,0.5), cameras=cameras).to(device)
     
     fragments = rasterizer(pcd)
     images = renderer(fragments, pcd).cpu()
@@ -203,10 +204,10 @@ def get_diffused_depth(pcd, path_append=""):
     t1 = time()
 
     print("Finding optimal reference viewpoint...")
-    # best_elev, best_azim = find_best_reference_pov_full(pcd, device)
+    best_elev, best_azim = find_best_reference_pov_full(pcd, device)
 
-    best_elev = -22.31578826904297
-    best_azim = -129.7894744873047
+    # best_elev = -22.31578826904297
+    # best_azim = -129.7894744873047
 
     # exit()
     # 
