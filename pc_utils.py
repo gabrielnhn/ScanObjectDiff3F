@@ -157,9 +157,14 @@ def load_ply_to_pytorch3d(filepath, require_normals=True):
     if normals is None and require_normals:
         print("No normals found. Computing them via PyTorch3D local PCA...")
         # Neighborhood size is the 'k' in k-nearest neighbors. 30 to 50 is standard.
+        
+        k = int(np.sqrt(len(points[0])))
+        print(f"Computing using K={k} neighbours")
         normals = estimate_pointcloud_normals(
             points, 
-            neighborhood_size=30, 
+            # neighborhood_size=30, 
+            # neighborhood_size=300, 
+            neighborhood_size=k,
             disambiguate_directions=True # Crucial: forces normals to face "outward" consistently
         )
         

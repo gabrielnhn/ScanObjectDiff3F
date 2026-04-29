@@ -45,9 +45,9 @@ class PhongCircleRenderer(nn.Module):
 
 
 class NormalsRenderer(nn.Module):
-    def __init__(self, background_color=(0.5, 0.5, 1.0), cameras=None):
+    def __init__(self, background_color=(0.5, 0.5, 0.5), cameras=None):
         super().__init__()
-        # Use your Pyglet background color (Light Blue)
+        # Using the standard background color
         self.compositor = AlphaCompositor(background_color=background_color)
         self.cameras = cameras
 
@@ -55,31 +55,33 @@ class NormalsRenderer(nn.Module):
         weights = (fragments.idx != -1).float().permute(0, 3, 1, 2)
         indices = fragments.idx.long().permute(0, 3, 1, 2)
         
-        # 1. Get World Space Normals
-        normals = pcd_batch.normals_packed()  # (P, 3)
+        # Get world-space points and normals
+        points = pcd_batch.points_packed()   # (P, 3)
+        normals = pcd_batch.normals_packed() # (P, 3)
         
-        # 2. Convert to Camera Space (Matches Pyglet's 'mv' transform)
-        # get_world_to_view_transform() gives the rotation the shader sees
-        w2v_mat = self.cameras.get_world_to_view_transform().get_matrix()[0, :3, :3]
-        normals_cam = torch.matmul(normals, w2v_mat)
-
-        # 3. Orient toward camera (Eliminates the "Static" noise from PCA)
-        # In PyTorch3D Cam Space, Z+ is INTO the screen.
-        # If normal points away (Z > 0), flip it.
-        flip_mask = normals_cam[:, 2] > 0
-        normals_cam = torch.where(flip_mask.unsqueeze(1), -normals_cam, normals_cam)
-
-        # 4. Apply your Pyglet Shader Math exactly:
-        # float x = n.x * 0.5 + 0.5; y = 1 - (n.y * 0.5 + 0.5); z = 1 - (n.z * 0.5 + 0.5);
-        x = normals_cam[:, 0] * 0.5 + 0.5
-        y = 1.0 - (normals_cam[:, 1] * 0.5 + 0.5)
-        z = 1.0 - (normals_cam[:, 2] * 0.5 + 0.5)
-
-        mapped_normals = torch.stack([x, y, z], dim=-1)
-        mapped_normals = torch.clamp(mapped_normals, 0.0, 1.0)
+        # 1. Get the camera center in world coordinates. 
+        # This corresponds exactly to Open3D's `pose[:3, 3]`.
+        # We take [0:1] to ensure shape (1, 3) for clean broadcasting, matching your batch=1 setup.
+        cam_loc = self.cameras.get_camera_center()[0:1] 
         
-        # 5. Composite
-        # permute(1, 0) makes it (Channels, Points) for the compositor
-        images = self.compositor(indices, weights, mapped_normals.permute(1, 0))
+        # 2. Orient normals towards the camera (Matches `orient_normals_towards_camera_location`)
+        # Calculate the view direction vector from each point to the camera
+        view_dirs = cam_loc - points 
+        
+        # Check if normals are pointing away from the camera using a dot product
+        dot_products = (normals * view_dirs).sum(dim=-1, keepdim=True) # (P, 1)
+        
+        # Flip normals that are pointing away (where dot product is negative)
+        oriented_normals = torch.where(dot_products < 0, -normals, normals)
+        
+        # 3. Map to [0, 1] color range (Matches `norm_normal: (normal+1)/2`)
+        colors = (oriented_normals + 1.0) / 2.0
+        
+        # Clamp just to be safe against minor floating point precision overshoots
+        colors = torch.clamp(colors, 0.0, 1.0)
+        
+        # 4. Composite the image
+        # Using the same permute(1, 0) you used to fit your specific compositor shape (3, P)
+        images = self.compositor(indices, weights, colors.permute(1, 0))
         
         return images.permute(0, 2, 3, 1)

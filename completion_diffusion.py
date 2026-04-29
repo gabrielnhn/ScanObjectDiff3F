@@ -61,7 +61,8 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.01):
 
     startv, endv = -80.0, 80.0
     starth, endh = -180.0, 180.0
-    num = 40 
+    # num = 40 
+    num = 20 
     batch_size = 16
     best_final_elev, best_final_azim = 0.0, 0.0
 
@@ -95,7 +96,6 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.01):
                 visible_indices = torch.unique(idx_map[b][valid_mask])
                 
                 if len(visible_indices) > 0:
-                    # --- 1. COMPC GEOMETRIC LOSS ---
                     visible_indices = visible_indices % total_points
                     visible_pts = points[visible_indices] 
                     
@@ -106,7 +106,6 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.01):
                     # Pose distance regularization
                     posedist = (cam_centers[b].unsqueeze(0) - points).square().sum(-1).sqrt().mean()
                     
-                    # --- 2. DEPTH-EDGE CONTOUR LOSS ---
                     d_map = depth_maps[b].clone()
                     max_val = d_map[valid_mask].max() if valid_mask.any() else 1.0
                     d_map[~valid_mask] = max_val * 1.2
@@ -120,7 +119,6 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.01):
                     contours, _ = cv.findContours(edges, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
                     edge_score = len(contours)
                     
-                    # --- 3. TOTAL WEIGHTED LOSS ---
                     # fixed_cd: completeness, posedist: closeness, edge_score: topology
                     loss = fixed_cd + (pose_w * posedist) + (edge_w * edge_score)
                     # print(f"FIXCD {fixed_cd} posedist {posedist} edgescore {edge_score}")
@@ -157,13 +155,15 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.01):
     return best_final_elev, best_final_azim
 
 def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RESOLUTION):
+    print(best_elev)
+    print(best_azim)
+    
     bbox = pcd.get_bounding_boxes()
     bbox_min = bbox.min(dim=-1).values[0]
     bbox_max = bbox.max(dim=-1).values[0]
     bb_diff = bbox_max - bbox_min
     bbox_center = (bbox_min + bbox_max) / 2.0
-    # distance = torch.sqrt((bb_diff * bb_diff).sum()) * 1.4
-    distance = torch.sqrt((bb_diff * bb_diff).sum()) * 0.90
+    distance = torch.sqrt((bb_diff * bb_diff).sum()) * 0.65
     
     azimuths = [best_azim]
     elevations = [best_elev]
@@ -175,11 +175,15 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     # cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=60.0)
     cameras = PerspectiveCameras(device=device, R=R, T=T)
     
-    raster_settings = PointsRasterizationSettings(image_size=(H, W), radius=0.02, points_per_pixel=1, bin_size=0)
+    raster_settings = PointsRasterizationSettings(
+        image_size=(H, W),
+        radius=0.005,
+        points_per_pixel=1,
+        bin_size=0)
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
-    # renderer = NormalsRenderer(background_color=(0.5,0.5,0.5), cameras=cameras).to(device)
+    # renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
+    renderer = NormalsRenderer(background_color=(0.5,0.5,0.5), cameras=cameras).to(device)
     
     fragments = rasterizer(pcd)
     images = renderer(fragments, pcd).cpu()
@@ -199,7 +203,10 @@ def get_diffused_depth(pcd, path_append=""):
     t1 = time()
 
     print("Finding optimal reference viewpoint...")
-    best_elev, best_azim = find_best_reference_pov_full(pcd, device)
+    # best_elev, best_azim = find_best_reference_pov_full(pcd, device)
+
+    best_elev = -22.31578826904297
+    best_azim = -129.7894744873047
 
     # exit()
     # 
@@ -210,10 +217,11 @@ def get_diffused_depth(pcd, path_append=""):
     # Unpack both the images and the depth tensor
     batched_imgs, depth_tensor = render_with_pytorch3d(device, pcd, best_elev, best_azim)
     
-    # ref_rgb = batched_imgs[0].cpu().numpy()
-    # ref_rgb = (ref_rgb * 255).astype(np.uint8)
-    # import cv2
-    # cv2.imwrite(os.path.join(renders_dir, "REFERENCE-rgb.png"), ref_rgb)
+    ref_rgb = batched_imgs[0].cpu().numpy()
+    ref_rgb = (ref_rgb * 255).astype(np.uint8)
+    import cv2
+    cv2.imwrite(os.path.join(renders_dir, "REFERENCE-rgb.png"), ref_rgb)
+    exit()
         
     # ref_alpha = torch.zeros_like(depth_tensor[0], dtype=torch.uint8)
     # ref_alpha[depth_tensor[0] > 0] = 255
@@ -305,14 +313,14 @@ if __name__ == "__main__":
     print("----------")
     device = torch.device("cuda")
     dataset_path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj"    
-    object = "horse.ply"
-    # object = "stanford-bunny.ply"
+    # object = "horse.ply"
+    object = "stanford-bunny.ply"
     
     
     from pc_utils import load_ply_to_pytorch3d 
     partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object))
     
-    path_name = f"DepthControlNetTest"
+    path_name = f"TESTING-NORMALS"
     get_diffused_depth(partial_pcd,
         path_append=path_name,
         # text_prompt=""
