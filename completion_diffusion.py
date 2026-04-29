@@ -184,7 +184,7 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
         bin_size=0)
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    renderer = PhongCircleRenderer(background_color=(0.5,0.5,0.5)).to(device)
+    renderer = PhongCircleRenderer(background_color=(0.0,0.0,0.0)).to(device)
     # renderer = NormalsRenderer(background_color=(0.5,0.5,0.5), cameras=cameras).to(device)
     
     fragments = rasterizer(pcd)
@@ -320,7 +320,8 @@ if __name__ == "__main__":
     
     
     from pc_utils import load_ply_to_pytorch3d 
-    partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object))
+    partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object),
+                                        normal_factor=7)
     
     path_name = f"TESTING-NORMALS"
     get_diffused_depth(partial_pcd,

@@ -140,7 +140,7 @@ def load_mvp_to_pytorch3d(h5_filename, index=0, load_complete=False):
 
 
 from pytorch3d.ops import estimate_pointcloud_normals
-def load_ply_to_pytorch3d(filepath, require_normals=True):
+def load_ply_to_pytorch3d(filepath, normal_factor=1):
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Could not find PLY file at: {filepath}")
 
@@ -151,21 +151,21 @@ def load_ply_to_pytorch3d(filepath, require_normals=True):
     normals = raw_pcd.normals_padded()
     
     if features is None:
-        color = torch.tensor([0.5,0.35,0.005], device=device)
+        # color = torch.tensor([0.5,0.35,0.005], device=device)
+        color = torch.tensor([1,1,1], device=device)
         features = color.view(1, 1, 3).expand_as(points)
         
-    if normals is None and require_normals:
+    if normals is None and normal_factor:
         print("No normals found. Computing them via PyTorch3D local PCA...")
-        # Neighborhood size is the 'k' in k-nearest neighbors. 30 to 50 is standard.
         
-        k = int(4*np.sqrt(len(points[0])))
+        k =  int(normal_factor *np.sqrt(len(points[0])))
         print(f"Computing using K={k} neighbours")
         normals = estimate_pointcloud_normals(
             points, 
             # neighborhood_size=30, 
             # neighborhood_size=300, 
             neighborhood_size=k,
-            disambiguate_directions=True # Crucial: forces normals to face "outward" consistently
+            disambiguate_directions=True
         )
         
     safe_pcd = Pointclouds(

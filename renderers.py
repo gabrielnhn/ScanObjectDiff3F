@@ -14,7 +14,7 @@ from pytorch3d.ops import knn_points
 
 class PhongCircleRenderer(nn.Module):
     """ Render circles with Blinn-Phong shading. """
-    def __init__(self, background_color=(1.0, 1.0, 1.0), ambient=0.6, diffuse=0.8):
+    def __init__(self, background_color=(1.0, 1.0, 1.0), ambient=0.1, diffuse=0.7):
         super().__init__()
         self.compositor = AlphaCompositor(background_color=background_color)
         self.ambient = ambient
