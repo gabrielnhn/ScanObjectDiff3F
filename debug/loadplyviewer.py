@@ -27,10 +27,14 @@ import trimesh
 
 
 # trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
-import os
-path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/"
-# path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/gtdata/"
-l = os.listdir(path)
-for file in l:
-    filepath = os.path.join(path, file)
-    trimesh.load(filepath).show()
+# trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/horse.ply").show()
+
+trimesh.load("debug/withnormals.ply").show()
+
+# import os
+# path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/"
+# # path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/gtdata/"
+# l = os.listdir(path)
+# for file in l:
+#     filepath = os.path.join(path, file)
+#     trimesh.load(filepath).show()
