@@ -14,11 +14,18 @@ from pytorch3d.ops import knn_points
 
 class PhongCircleRenderer(nn.Module):
     """ Render circles with Blinn-Phong shading. """
-    def __init__(self, background_color=(1.0, 1.0, 1.0), ambient=0.1, diffuse=0.7):
+    def __init__(self, background_color=(1.0, 1.0, 1.0),
+                    ambient=0.3,
+                    diffuse=0.7,
+                    specular=0.15,
+                    shininess=8.0
+                 ):
         super().__init__()
         self.compositor = AlphaCompositor(background_color=background_color)
         self.ambient = ambient
         self.diffuse = diffuse
+        self.specular = specular
+        self.shininess = shininess
 
     def forward(self, fragments, pcd_batch, cameras=None, light_dir=torch.tensor([0.0, 1.0, 1.0])):
         weights = (fragments.idx != -1).float().permute(0, 3, 1, 2)
@@ -34,11 +41,24 @@ class PhongCircleRenderer(nn.Module):
         light_dir = F.normalize(light_dir.to(points.device), p=2, dim=-1)
         n_dot_l = torch.sum(normals * light_dir, dim=-1, keepdim=True)
         n_dot_l = torch.where(n_dot_l < 0, -n_dot_l, n_dot_l)
-                
         diffuse_term = torch.clamp(n_dot_l, min=0.0)
-        shaded_features = features * (self.ambient + self.diffuse * diffuse_term)
+        
+        
+        half_vec = F.normalize(light_dir + light_dir, p=2, dim=-1)
+        n_dot_h = torch.sum(normals * half_vec, dim=-1, keepdim=True)
+        
+        specular_term = torch.pow(torch.clamp(n_dot_h, min=0.0), self.shininess)
+        specular_term = torch.where(n_dot_l > 0, specular_term, torch.zeros_like(specular_term))
+
+        shaded_features = features * (self.ambient + self.diffuse * diffuse_term) + (self.specular * specular_term)
         shaded_features = torch.clamp(shaded_features, 0.0, 1.0)
         shaded_features = shaded_features.permute(1, 0)
+
+        
+                
+        # shaded_features = features * (self.ambient + self.diffuse * diffuse_term)
+        # shaded_features = torch.clamp(shaded_features, 0.0, 1.0)
+        # shaded_features = shaded_features.permute(1, 0)
 
         images = self.compositor(indices, weights, shaded_features)
         return images.permute(0, 2, 3, 1)
