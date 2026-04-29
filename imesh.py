@@ -22,11 +22,11 @@ device = "cuda"
 model_cache_dir = './ckpts/'
 os.makedirs(model_cache_dir, exist_ok=True)
 
-# ==========================================
-# PHASE 1: IMAGE PREP (THE WHITE BACKGROUND)
-# ==========================================
+
+shape = "normalbunny"
+
 print("1. Processing Input Image...")
-input_image_path = "horse.png"
+input_image_path = shape+".png"
 
 
 # Remove background
@@ -65,6 +65,10 @@ pipeline = pipeline.to(device)
 
 print("   Generating 6 multi-views...")
 z123_image = pipeline(processed_image, num_inference_steps=50).images[0]
+
+z123_image.save(shape+"-zero123.png")
+
+
 
 # --- THE AIRLOCK (SAVE VRAM) ---
 print("   Flushing Zero123++ from VRAM...")
@@ -113,9 +117,6 @@ with torch.no_grad():
     mesh_v, mesh_f, _, _, _, _ = model.get_geometry_prediction(planes)
     vertices = mesh_v[0]
 
-# ==========================================
-# PHASE 4: SAVE PLY
-# ==========================================
 points = vertices.detach().cpu().numpy()
 
 def save_point_cloud_to_ply(points, filename):
@@ -126,6 +127,6 @@ def save_point_cloud_to_ply(points, filename):
         for p in points:
             f.write(f"{p[0]:.6f} {p[1]:.6f} {p[2]:.6f}\n")
 
-output_filename = "final_instantmesh_shape_horse.ply"
+output_filename = shape + "-IMESH.ply"
 save_point_cloud_to_ply(points, output_filename)
 print(f"Success! Point cloud saved to {output_filename}")

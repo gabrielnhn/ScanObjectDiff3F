@@ -184,8 +184,11 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
         bin_size=0)
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    renderer = PhongCircleRenderer(background_color=(0.0,0.0,0.0)).to(device)
-    # renderer = NormalsRenderer(background_color=(0.5,0.5,0.5), cameras=cameras).to(device)
+    # renderer = PhongCircleRenderer(background_color=(0.0,0.0,0.0)).to(device)
+    renderer = NormalsRenderer(
+        # background_color=(0.5,0.5,0.5),
+        background_color=(0.0,0.0,0.0),
+        cameras=cameras).to(device)
     
     fragments = rasterizer(pcd)
     images = renderer(fragments, pcd).cpu()
@@ -222,21 +225,21 @@ def get_diffused_depth(pcd, path_append=""):
     ref_rgb = batched_imgs[0].cpu().numpy()
     ref_rgb = (ref_rgb * 255).astype(np.uint8)
     import cv2
-    cv2.imwrite(os.path.join(renders_dir, "REFERENCE-rgb.png"), ref_rgb)
-    exit()
-        
-    # ref_alpha = torch.zeros_like(depth_tensor[0], dtype=torch.uint8)
-    # ref_alpha[depth_tensor[0] > 0] = 255
-    # ref_alpha = ref_alpha.cpu().numpy()[..., None] # Add channel dimension
-    
-    # ref_rgba = np.concatenate([ref_rgb, ref_alpha], axis=-1)
-    
-    
-    # best_pov_image = Image.fromarray(ref_rgba, mode='RGBA')
-    # best_pov_image.save(os.path.join(renders_dir, "REFERENCE-post.png"))
-    # completed_prior_image = best_pov_image
-
+    # cv2.imwrite(os.path.join(renders_dir, "REFERENCE-rgb.png"), ref_rgb)
     # exit()
+        
+    ref_alpha = torch.zeros_like(depth_tensor[0], dtype=torch.uint8)
+    ref_alpha[depth_tensor[0] > 0] = 255
+    ref_alpha = ref_alpha.cpu().numpy()[..., None] # Add channel dimension
+    
+    ref_rgba = np.concatenate([ref_rgb, ref_alpha], axis=-1)
+    
+    
+    best_pov_image = Image.fromarray(ref_rgba, mode='RGBA')
+    best_pov_image.save(os.path.join(renders_dir, "REFERENCE-post.png"))
+    completed_prior_image = best_pov_image
+    exit()
+
     # completed_prior_image.save(os.path.join(renders_dir, "REFERENCE_PRIOR.png"))
     # completed_prior_image = Image.open("./manual-bunny.png")
     # completed_prior_image = Image.open("./totebag.png")
