@@ -27,8 +27,9 @@ def run_diffusion(depth_image, conditioning_scale=1.0):
     generator = torch.manual_seed(0)
     
     
+    # text_prompt = "A smooth 3D clay sculpture, matte gray plaster material, blank dark background"
     text_prompt = "A smooth 3D clay sculpture, matte gray plaster material, uniform texture, blank studio lighting, blank white background"
-    negative_prompt = "shadow, face, eyes, patterns, colors, noise, uneven, high contrast"
+    negative_prompt = "shadow, face, eyes, patterns, colors, noise, uneven, high contrast, texture"
     
     image = pipe(
         prompt=text_prompt,

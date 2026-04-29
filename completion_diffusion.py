@@ -11,7 +11,7 @@ from PIL import Image
 from pc_utils import load_scanobjectnn_to_pytorch3d, save_pointcloud_with_features
 import zero123_diffusion
 
-RESOLUTION = 320
+RESOLUTION = 512
 
 from pytorch3d.renderer import (
     look_at_view_transform,
@@ -52,7 +52,7 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.01):
     distance = torch.sqrt(((bbox_max - bbox_min) ** 2).sum()) * 0.65
 
     # Raster settings - image_size 512 for better contour precision
-    image_size = 512
+    image_size = RESOLUTION
     raster_settings = PointsRasterizationSettings(
         image_size=image_size, 
         radius=0.02, 
@@ -163,7 +163,7 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     bb_diff = bbox_max - bbox_min
     bbox_center = (bbox_min + bbox_max) / 2.0
     # distance = torch.sqrt((bb_diff * bb_diff).sum()) * 1.4
-    distance = torch.sqrt((bb_diff * bb_diff).sum()) #* 0.75
+    distance = torch.sqrt((bb_diff * bb_diff).sum()) * 0.90
     
     azimuths = [best_azim]
     elevations = [best_elev]
@@ -172,7 +172,8 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
                                   azim=torch.tensor(azimuths, device=device), device=device, 
                                   at=bbox_center.unsqueeze(0))
     
-    cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=60.0)
+    # cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=60.0)
+    cameras = PerspectiveCameras(device=device, R=R, T=T)
     
     raster_settings = PointsRasterizationSettings(image_size=(H, W), radius=0.02, points_per_pixel=1, bin_size=0)
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)

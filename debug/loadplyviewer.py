@@ -22,11 +22,15 @@ import trimesh
 
 # trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/horse.ply").show()
 # trimesh.load(f"/home/gabrielnhn/LGM/workspace/gradio_output.ply").show()
+# trimesh.load(f"final_instantmesh_shape.ply").show()
+# trimesh.load(f"/home/gabrielnhn/LGM/workspace/white bunny/gradio_output.ply").show()
 
-trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
-# import os
-# path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/"
-# l = os.listdir(path)
-# for file in l:
-#     filepath = os.path.join(path, file)
-#     trimesh.load(filepath).show()
+
+# trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
+import os
+path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/"
+# path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/gtdata/"
+l = os.listdir(path)
+for file in l:
+    filepath = os.path.join(path, file)
+    trimesh.load(filepath).show()

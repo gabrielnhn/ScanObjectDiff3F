@@ -26,7 +26,7 @@ os.makedirs(model_cache_dir, exist_ok=True)
 # PHASE 1: IMAGE PREP (THE WHITE BACKGROUND)
 # ==========================================
 print("1. Processing Input Image...")
-input_image_path = "manual-bunny.png"
+input_image_path = "horse.png"
 
 
 # Remove background
@@ -126,6 +126,6 @@ def save_point_cloud_to_ply(points, filename):
         for p in points:
             f.write(f"{p[0]:.6f} {p[1]:.6f} {p[2]:.6f}\n")
 
-output_filename = "final_instantmesh_shape.ply"
+output_filename = "final_instantmesh_shape_horse.ply"
 save_point_cloud_to_ply(points, output_filename)
 print(f"Success! Point cloud saved to {output_filename}")
