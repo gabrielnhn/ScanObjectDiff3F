@@ -8,11 +8,11 @@ l = ["3.png", "4.png"]
 
 device = torch.device("cuda")
 dataset_path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj"    
-object = "horse.ply"
-# object = "stanford-bunny.ply"
+# object = "horse.ply"
+object = "stanford-bunny.ply"
 
 from pc_utils import load_ply_to_pytorch3d
-partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object))
+partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object), require_normals=False)
 
 # import torch
 # import cv2 as cv
@@ -27,7 +27,7 @@ import random
 from pytorch3d.renderer import PointsRasterizationSettings, PointsRasterizer, PerspectiveCameras, look_at_view_transform
 from pytorch3d.ops import knn_points
 
-def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=5.0):
+def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.1):
     """
     Combines COMPC (Chamfer Distance + Depth Regularization) 
     with OpenCV Depth-Edge Contour detection.
@@ -46,7 +46,7 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=5.0):
     image_size = 512
     raster_settings = PointsRasterizationSettings(
         image_size=image_size, 
-        radius=0.02, 
+        radius=0.01, 
         points_per_pixel=1
     )
 
@@ -111,8 +111,6 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=5.0):
                     contours, _ = cv.findContours(edges, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
                     edge_score = len(contours)
                     
-                    # --- 3. TOTAL WEIGHTED LOSS ---
-                    # fixed_cd: completeness, posedist: closeness, edge_score: topology
                     loss = fixed_cd + (pose_w * posedist) + (edge_w * edge_score)
                 else:
                     loss = torch.tensor(float('inf'))
@@ -123,12 +121,12 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=5.0):
                     best_azim = chunk_azims[b].item()
                     
                     # Prepare debug image (convert to BGR for colorful contours)
-                    # color_img = cv.cvtColor(d_img, cv.COLOR_GRAY2BGR)
-                    # for cnt in contours:
-                    #     cv.drawContours(color_img, [cnt], -1, (random.randint(0,255), 
-                    #                                           random.randint(0,255), 
-                    #                                           random.randint(0,255)), 1)
-                    # best_img_to_save = color_img
+                    color_img = cv.cvtColor(d_img, cv.COLOR_GRAY2BGR)
+                    for cnt in contours:
+                        cv.drawContours(color_img, [cnt], -1, (random.randint(0,255), 
+                                                              random.randint(0,255), 
+                                                              random.randint(0,255)), 1)
+                    best_img_to_save = color_img
             
             del pcd_batch, fragments, cameras, rasterizer
             torch.cuda.empty_cache() 
@@ -140,14 +138,14 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=5.0):
         starth, endh = best_azim - interh, best_azim + interh
         best_final_elev, best_final_azim = best_elev, best_azim
         
-        # if best_img_to_save is not None:
-        #     cv.imwrite(f"reference_test/combined-{j}-{best_elev:.1f}-{best_azim:.1f}.jpg", best_img_to_save)
+        if best_img_to_save is not None:
+            cv.imwrite(f"reference_test/combined-{j}-{best_elev:.1f}-{best_azim:.1f}.jpg", best_img_to_save)
 
     print(f"Optimal POV Found -> Azimuth: {best_final_azim:.1f}°, Elevation: {best_final_elev:.1f}°")
     return best_final_elev, best_final_azim
 
 
-def find_best_reference_pov_compc(pcd, device, pose_w=0.5, hole_w=10.0):
+def find_best_reference_pov_compc(pcd, device, pose_w=0.5):
     points = pcd.points_padded()[0]
     total_points = points.shape[0]
     
@@ -161,7 +159,7 @@ def find_best_reference_pov_compc(pcd, device, pose_w=0.5, hole_w=10.0):
     image_size = 512
     raster_settings = PointsRasterizationSettings(
         image_size=image_size, 
-        radius=0.02, 
+        radius=0.01, 
         points_per_pixel=1
     )
 
@@ -250,7 +248,8 @@ def find_best_reference_pov_compc(pcd, device, pose_w=0.5, hole_w=10.0):
     return best_final_elev, best_final_azim
 
 
-# find_best_reference_pov_compc(partial_pcd, device)
+find_best_reference_pov_full(partial_pcd, device)
+find_best_reference_pov_compc(partial_pcd, device)
 
 # for file in l:
 #     if file.endswith(".py"):

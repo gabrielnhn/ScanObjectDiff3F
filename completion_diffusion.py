@@ -36,7 +36,7 @@ if not os.path.isdir("renders"):
     os.mkdir("renders")
 
 
-def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.03):
+def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.1):
     """
     Combines COMPC (Chamfer Distance + Depth Regularization) 
     with OpenCV Depth-Edge Contour detection.
@@ -55,8 +55,9 @@ def find_best_reference_pov_full(pcd, device, pose_w=0.5, edge_w=0.03):
     image_size = RESOLUTION
     raster_settings = PointsRasterizationSettings(
         image_size=image_size, 
-        radius=0.02, 
-        points_per_pixel=1
+        radius=0.01, 
+        points_per_pixel=1,
+        bin_size=0
     )
 
     startv, endv = -80.0, 80.0
