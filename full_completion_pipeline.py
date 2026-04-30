@@ -6,8 +6,8 @@ from tqdm import tqdm
 import cv2 as cv
 from PIL import Image
 
-# RESOLUTION = 512
-RESOLUTION = 320
+RESOLUTION = 512
+# RESOLUTION = 320
 
 from pytorch3d.renderer import (
     look_at_view_transform,
@@ -59,7 +59,7 @@ renders_dir = "renders"
 if not os.path.isdir(renders_dir):
     os.mkdir(renders_dir)    
 
-def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.6):
+def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.1):
     """
     Combines COMPC (Chamfer Distance + Depth Regularization) 
     with OpenCV Depth-Edge Contour detection.
@@ -72,11 +72,10 @@ def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.6):
     bbox_min = bbox.min(dim=-1).values[0]
     bbox_max = bbox.max(dim=-1).values[0]
     bbox_center = (bbox_min + bbox_max) / 2.0
-    # distance = torch.sqrt(((bbox_max - bbox_min) ** 2).sum()) * 0.65
-    distance = 4.0
+    distance = torch.sqrt(((bbox_max - bbox_min) ** 2).sum()) * 0.65
+    # distance = 4.0
 
-    # Raster settings - image_size 512 for better contour precision
-    image_size = RESOLUTION
+    image_size = 512
     raster_settings = PointsRasterizationSettings(
         image_size=image_size, 
         radius=0.01, 
@@ -107,8 +106,8 @@ def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.6):
             chunk_azims = horss[i:i+batch_size]
             
             R, T = look_at_view_transform(dist=distance, elev=chunk_elevs, azim=chunk_azims, device=device, at=bbox_center.unsqueeze(0))
-            # cameras = PerspectiveCameras(device=device, R=R, T=T)
-            cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=30.0)
+            cameras = PerspectiveCameras(device=device, R=R, T=T)
+            # cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=30.0)
             
             rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
             
@@ -159,13 +158,13 @@ def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.6):
                     best_azim = chunk_azims[b].item()
                     
                     # Prepare debug image (convert to BGR for colorful contours)
-                    import random
-                    color_img = cv.cvtColor(d_img, cv.COLOR_GRAY2BGR)
-                    for cnt in contours:
-                        cv.drawContours(color_img, [cnt], -1, (random.randint(0,255), 
-                                                              random.randint(0,255), 
-                                                              random.randint(0,255)), 1)
-                    best_img_to_save = color_img
+                    # import random
+                    # color_img = cv.cvtColor(d_img, cv.COLOR_GRAY2BGR)
+                    # for cnt in contours:
+                    #     cv.drawContours(color_img, [cnt], -1, (random.randint(0,255), 
+                    #                                           random.randint(0,255), 
+                    #                                           random.randint(0,255)), 1)
+                    # best_img_to_save = color_img
             
             del pcd_batch, fragments, cameras, rasterizer
             torch.cuda.empty_cache() 
@@ -177,11 +176,11 @@ def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.6):
         starth, endh = best_azim - interh, best_azim + interh
         best_final_elev, best_final_azim = best_elev, best_azim
         
-        if best_img_to_save is not None:
-            cv.imwrite(os.path.join(
-                        renders_dir, f"combined-{j}-{best_elev:.1f}-{best_azim:.1f}.jpg")
-                       ,
-                       best_img_to_save)
+        # if best_img_to_save is not None:
+        #     cv.imwrite(os.path.join(
+        #                 renders_dir, f"combined-{j}-{best_elev:.1f}-{best_azim:.1f}.jpg")
+        #                ,
+        #                best_img_to_save)
 
     print(f"Optimal POV Found -> Azimuth: {best_final_azim:.1f}°, Elevation: {best_final_elev:.1f}°")
     return best_final_elev, best_final_azim
@@ -195,8 +194,8 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     bbox_max = bbox.max(dim=-1).values[0]
     bb_diff = bbox_max - bbox_min
     bbox_center = (bbox_min + bbox_max) / 2.0
-    # distance = torch.sqrt((bb_diff * bb_diff).sum()) * 0.65
-    distance = 4.0
+    # distance = 4.0
+    distance = torch.sqrt((bb_diff * bb_diff).sum()) * 0.65
     
     azimuths = [best_azim]
     elevations = [best_elev]
@@ -205,8 +204,8 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
                                   azim=torch.tensor(azimuths, device=device), device=device, 
                                   at=bbox_center.unsqueeze(0))
     
-    cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=30.0)
-    # cameras = PerspectiveCameras(device=device, R=R, T=T)
+    # cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=30.0)
+    cameras = PerspectiveCameras(device=device, R=R, T=T)
     
     # raster_settings = PointsRasterizationSettings(
     #     image_size=(H, W),
@@ -245,7 +244,7 @@ def get_reference_image(pcd, best_elev, best_azim):
     
     ref_rgb = batched_imgs[0].cpu().numpy()
     ref_rgb = (ref_rgb * 255).astype(np.uint8)
-    import cv2
+    # import cv
     ref_alpha = torch.zeros_like(depth_tensor[0], dtype=torch.uint8)
     ref_alpha[depth_tensor[0] > 0] = 255
     ref_alpha = ref_alpha.cpu().numpy()[..., None] # Add channel dimension
@@ -431,6 +430,9 @@ if __name__ == "__main__":
 
     print("GET BEST RGB;")
     canonical_image = get_reference_image(partial_pcd, best_elev, best_azim)
+    
+    exit()
+    
     print("RUN ZERO123++;")
     mv_image = get_mv_images(canonical_image)
     print("RUN INSTANTMESH FORWARD PASS;")
