@@ -271,6 +271,9 @@ def get_mv_images(canonical_img):
     processed_image = white_bg.convert("RGB")
     processed_image = processed_image.resize((320, 320)) # Ensure standard size
 
+
+    return None, processed_image
+
     pipeline = DiffusionPipeline.from_pretrained(
         "sudo-ai/zero123plus-v1.2", 
         custom_pipeline="sudo-ai/zero123plus-pipeline",
@@ -307,17 +310,18 @@ def get_imesh_triplane(
     best_elev,
     best_azim
 ):
-    # Convert the 960x640 grid directly into a [6, 3, 320, 320] tensor using einops (Zero cropping mistakes!)
-    images_arr = np.asarray(mv_image, dtype=np.float32) / 255.0
-    images_tensor = torch.from_numpy(images_arr).permute(2, 0, 1).contiguous()
-    images_tensor = rearrange(images_tensor, 'c (n h) (m w) -> (n m) c h w', n=3, m=2)
+    # # Convert the 960x640 grid directly into a [6, 3, 320, 320] tensor using einops (Zero cropping mistakes!)
+    # images_arr = np.asarray(mv_image, dtype=np.float32) / 255.0
+    # images_tensor = torch.from_numpy(images_arr).permute(2, 0, 1).contiguous()
+    # images_tensor = rearrange(images_tensor, 'c (n h) (m w) -> (n m) c h w', n=3, m=2)
 
 
-    # Batch it and cast to FP16
-    image_tensor = images_tensor.unsqueeze(0).to(device, dtype=torch.float16)
-    cameras = get_zero123plus_input_cameras(batch_size=1, radius=4.0).to(device, dtype=torch.float16)
+    # # Batch it and cast to FP16
+    # image_tensor = images_tensor.unsqueeze(0).to(device, dtype=torch.float16)
+    # cameras = get_zero123plus_input_cameras(batch_size=1, radius=4.0).to(device, dtype=torch.float16)
+    # print("   Injecting Canonical GT View as 7th Input...")
 
-    print("   Injecting Canonical GT View as 7th Input...")
+    print("   Injecting Canonical GT View as only Input...")
 
     # Ensure processed_canonical_image is a 320x320 PIL Image or Numpy array
     canon_arr = np.asarray(processed_canonical_image, dtype=np.float32) / 255.0
@@ -325,7 +329,8 @@ def get_imesh_triplane(
     canon_tensor = canon_tensor.unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float16) # [1, 1, 3, 320, 320]
 
     # Append to the Zero123++ hallucinated views
-    image_tensor = torch.cat([image_tensor, canon_tensor], dim=1) # Now [1, 7, 3, 320, 320]
+    # image_tensor = torch.cat([image_tensor, canon_tensor], dim=1) # Now [1, 7, 3, 320, 320]
+    image_tensor = canon_tensor
 
     # 2. Format the Canonical Camera Matrix (Azimuth 0, Elevation 0, Radius 4.0)
     canon_c2w = spherical_camera_pose(np.array([0.0]), np.array([0.0]), radius=4.0)
@@ -340,8 +345,10 @@ def get_imesh_triplane(
     canon_cam = torch.cat([canon_ext, canon_int], dim=-1)
     canon_cam = canon_cam.unsqueeze(0).to(device, dtype=torch.float16) # [1, 1, 16]
 
-    # Append to the Zero123++ cameras
-    cameras = torch.cat([cameras, canon_cam], dim=1) # Now [1, 7, 16]
+    # # Append to the Zero123++ cameras
+    # cameras = torch.cat([cameras, canon_cam], dim=1) # Now [1, 7, 16]
+    
+    cameras = canon_cam
 
     print("Loading InstantMesh...")
     model_ckpt_path = hf_hub_download(
