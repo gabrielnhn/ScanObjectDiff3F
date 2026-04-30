@@ -493,19 +493,29 @@ if __name__ == "__main__":
     # We rotate 90 degrees around X to bring Z up to Y.
     # Depending on the Zero123++ azimuth, you might need a 90-degree yaw.
     
-    # Start with identity
-    M_offset = np.eye(3) 
+    # ==========================================================
+    # 2. THE CONSTANT AXIS CORRECTION & HANDEDNESS BRIDGE
+    # ==========================================================
     
-    # Flips Z-up to Y-up (Standard OpenGL to PyTorch3D bridge)
+    # 1. Flip Handedness (Right-Handed OpenGL -> Left-Handed PyTorch3D)
+    # This fixes the "mirror" effect. We flip the X axis.
+    mirror_matrix = np.array([
+        [1,  0,  0], 
+        [ 0,  -1,  0],
+        [ 0,  0,  1]
+    ])
+
+    # 2. Z-Up to Y-Up
     flip_matrix = np.array([
         [ 1,  0,  0],
         [ 0,  0, -1],
         [ 0,  1,  0]
     ])
     
-    # If the bunny is facing 90 degrees the wrong way (like in your image),
-    # change this yaw value to 90, -90, or 180 to snap it into place.
-    yaw_degrees = 90  # <-- CHANGE THIS IF IT FACES THE WRONG WAY
+    # 3. The Azimuth Alignment (yaw_degrees)
+    # If the bunny's head was facing exactly 180 degrees away from the blue bunny's head,
+    # set this to 180. If it was facing 90 degrees away, set to 90 or -90.
+    yaw_degrees = 90  # <-- Tweak this only if it's facing sideways, NOT mirrored
     yaw_rad = np.radians(yaw_degrees)
     yaw_matrix = np.array([
         [ np.cos(yaw_rad), 0, np.sin(yaw_rad)],
@@ -513,7 +523,8 @@ if __name__ == "__main__":
         [-np.sin(yaw_rad), 0, np.cos(yaw_rad)]
     ])
     
-    M_offset = flip_matrix @ yaw_matrix
+    # Combine them in strict order: Mirror -> Y-Up -> Yaw
+    M_offset = mirror_matrix @ flip_matrix @ yaw_matrix
     
     # Apply constant correction
     out_np_view_space = out_np_norm @ M_offset

@@ -47,7 +47,8 @@ p2.visual.vertex_colors = [0, 255, 0, 255] # Green
 p3 = trimesh.load("debug_3_partial_sensor.ply")
 p3.visual.vertex_colors = [0, 0, 255, 255] # Blue
 
-trimesh.Scene([p1, p2, p3]).show()
+# trimesh.Scene([p1, p2, p3]).show()
+trimesh.Scene([p1, p3]).show()
 # import os
 # path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/"
 # # path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/gtdata/"
