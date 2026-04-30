@@ -7,6 +7,7 @@ import cv2 as cv
 from PIL import Image
 
 RESOLUTION = 512
+CANON_ONLY = False
 # RESOLUTION = 320
 
 from pytorch3d.renderer import (
@@ -271,8 +272,8 @@ def get_mv_images(canonical_img):
     processed_image = white_bg.convert("RGB")
     processed_image = processed_image.resize((320, 320)) # Ensure standard size
 
-
-    return None, processed_image
+    if CANON_ONLY:
+        return None, processed_image
 
     pipeline = DiffusionPipeline.from_pretrained(
         "sudo-ai/zero123plus-v1.2", 
@@ -308,31 +309,23 @@ def get_imesh_triplane(
     mv_image,
     processed_canonical_image,
     best_elev,
-    best_azim
+    best_azim,
 ):
-    # # Convert the 960x640 grid directly into a [6, 3, 320, 320] tensor using einops (Zero cropping mistakes!)
-    # images_arr = np.asarray(mv_image, dtype=np.float32) / 255.0
-    # images_tensor = torch.from_numpy(images_arr).permute(2, 0, 1).contiguous()
-    # images_tensor = rearrange(images_tensor, 'c (n h) (m w) -> (n m) c h w', n=3, m=2)
-
-
-    # # Batch it and cast to FP16
-    # image_tensor = images_tensor.unsqueeze(0).to(device, dtype=torch.float16)
-    # cameras = get_zero123plus_input_cameras(batch_size=1, radius=4.0).to(device, dtype=torch.float16)
-    # print("   Injecting Canonical GT View as 7th Input...")
-
-    print("   Injecting Canonical GT View as only Input...")
+    
+    if not CANON_ONLY:
+        # Convert the 960x640 grid directly into a [6, 3, 320, 320] tensor using einops (Zero cropping mistakes!)
+        images_arr = np.asarray(mv_image, dtype=np.float32) / 255.0
+        images_tensor = torch.from_numpy(images_arr).permute(2, 0, 1).contiguous()
+        images_tensor = rearrange(images_tensor, 'c (n h) (m w) -> (n m) c h w', n=3, m=2)
+        # Batch it and cast to FP16
+        image_tensor = images_tensor.unsqueeze(0).to(device, dtype=torch.float16)
+        cameras = get_zero123plus_input_cameras(batch_size=1, radius=4.0).to(device, dtype=torch.float16)
 
     # Ensure processed_canonical_image is a 320x320 PIL Image or Numpy array
     canon_arr = np.asarray(processed_canonical_image, dtype=np.float32) / 255.0
     canon_tensor = torch.from_numpy(canon_arr).permute(2, 0, 1).contiguous()
     canon_tensor = canon_tensor.unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float16) # [1, 1, 3, 320, 320]
 
-    # Append to the Zero123++ hallucinated views
-    # image_tensor = torch.cat([image_tensor, canon_tensor], dim=1) # Now [1, 7, 3, 320, 320]
-    image_tensor = canon_tensor
-
-    # 2. Format the Canonical Camera Matrix (Azimuth 0, Elevation 0, Radius 4.0)
     canon_c2w = spherical_camera_pose(np.array([0.0]), np.array([0.0]), radius=4.0)
     canon_c2w = canon_c2w.float().flatten(-2) # [1, 16]
 
@@ -346,9 +339,13 @@ def get_imesh_triplane(
     canon_cam = canon_cam.unsqueeze(0).to(device, dtype=torch.float16) # [1, 1, 16]
 
     # # Append to the Zero123++ cameras
-    # cameras = torch.cat([cameras, canon_cam], dim=1) # Now [1, 7, 16]
-    
-    cameras = canon_cam
+    if CANON_ONLY:
+        image_tensor = canon_tensor
+        cameras = canon_cam
+    else:
+        image_tensor = torch.cat([image_tensor, canon_tensor], dim=1) # Now [1, 7, 3, 320, 320]
+        cameras = torch.cat([cameras, canon_cam], dim=1) # Now [1, 7, 16]
+
 
     print("Loading InstantMesh...")
     model_ckpt_path = hf_hub_download(
@@ -439,7 +436,8 @@ if __name__ == "__main__":
     device = torch.device("cuda")
     dataset_path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj"    
     # object = "horse.ply"
-    object = "stanford-bunny.ply"
+    # object = "stanford-bunny.ply"
+    object = "cow.ply"
     
     renders_dir = os.path.join(renders_dir, object.split(".")[0])
     # renders_dir = "renders"
@@ -452,9 +450,9 @@ if __name__ == "__main__":
                                         normal_factor=7)
     
     # print("FIND AZIM/ELEV;")
-    # best_elev, best_azim = find_best_reference_pov_full(partial_pcd)
-    best_elev = 12.016324043273926
-    best_azim = -129.30612182617188
+    best_elev, best_azim = find_best_reference_pov_full(partial_pcd)
+    # best_elev = 12.016324043273926
+    # best_azim = -129.30612182617188
 
     print("GET BEST RGB;")
     canonical_image = get_reference_image(partial_pcd, best_elev, best_azim)
@@ -546,9 +544,9 @@ if __name__ == "__main__":
     # out_np_aligned = run_icp(out_np_resampled, partial_np_resampled)
 
     print("SAVING DEBUG POINT CLOUDS;")
-    save_debug_ply(out_np_resampled, "debug_1_prediction_deterministic.ply")
-    save_debug_ply(gt_np_resampled, "debug_2_ground_truth.ply")
-    save_debug_ply(partial_np_resampled, "debug_3_partial_sensor.ply")
+    save_debug_ply(out_np_resampled, os.path.join(renders_dir, "debug_1_prediction_deterministic.ply"))
+    save_debug_ply(gt_np_resampled, os.path.join(renders_dir, "debug_2_ground_truth.ply"))
+    save_debug_ply(partial_np_resampled, os.path.join(renders_dir, "debug_3_partial_sensor.ply"))
     
 
     # cd_score = compute_metric(out_np_resampled, gt_np_resampled)

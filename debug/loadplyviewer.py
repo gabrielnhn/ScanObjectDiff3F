@@ -1,4 +1,5 @@
 import trimesh
+import os
 # import test_pc_scanobject
 
 # trimesh.load("./final_source_gt.ply").show()
@@ -32,19 +33,23 @@ import trimesh
 # trimesh.load("IMESH.ply").show()
 # trimesh.load("normalbunny-IMESH.ply").show()
 
-
-
-trimesh.load("debug_1_prediction_deterministic.ply").show()
-
-
-p1 = trimesh.load("debug_1_prediction_deterministic.ply")
+# trimesh.load("debug_1_prediction_deterministic.ply").show()
 # p1 = trimesh.load(f"final_instantmesh_shape.ply")
+
+
+renders_dir = "./renders/horse/"
+renders_dir = "./renders/cow/"
+path1 = os.path.join(renders_dir, "debug_1_prediction_deterministic.ply")
+path2 = os.path.join(renders_dir, "debug_2_ground_truth.ply")
+path3 = os.path.join(renders_dir, "debug_3_partial_sensor.ply")
+
+p1 = trimesh.load(path1)
 p1.visual.vertex_colors = [255, 0, 0, 255] # Red
 
-p2 = trimesh.load("debug_2_ground_truth.ply")
+p2 = trimesh.load(path2)
 p2.visual.vertex_colors = [0, 255, 0, 255] # Green
 
-p3 = trimesh.load("debug_3_partial_sensor.ply")
+p3 = trimesh.load(path3)
 p3.visual.vertex_colors = [0, 0, 255, 255] # Blue
 
 # trimesh.Scene([p1, p2, p3]).show()
