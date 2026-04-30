@@ -29,7 +29,8 @@ import trimesh
 # trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
 # trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/horse.ply").show()
 
-trimesh.load("debug/withnormals.ply").show()
+trimesh.load("polyscope-IMESH.ply").show()
+trimesh.load("normalbunny-IMESH.ply").show()
 
 # import os
 # path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/"

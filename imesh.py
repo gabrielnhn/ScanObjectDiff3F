@@ -23,6 +23,7 @@ model_cache_dir = './ckpts/'
 os.makedirs(model_cache_dir, exist_ok=True)
 
 
+shape = "polyscope"
 shape = "normalbunny"
 
 print("1. Processing Input Image...")
@@ -69,7 +70,7 @@ z123_image = pipeline(processed_image, num_inference_steps=50).images[0]
 z123_image.save(shape+"-zero123.png")
 
 
-
+#exit()
 # --- THE AIRLOCK (SAVE VRAM) ---
 print("   Flushing Zero123++ from VRAM...")
 del pipeline
