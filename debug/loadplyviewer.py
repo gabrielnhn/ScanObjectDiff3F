@@ -28,10 +28,24 @@ import trimesh
 
 # trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/horse.ply").show()
 
-trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
-trimesh.load("IMESH.ply").show()
+# trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
+# trimesh.load("IMESH.ply").show()
 # trimesh.load("normalbunny-IMESH.ply").show()
 
+
+import trimesh
+
+p1 = trimesh.load("debug_1_prediction_aligned.ply")
+# p1 = trimesh.load(f"final_instantmesh_shape.ply")
+p1.visual.vertex_colors = [255, 0, 0, 255] # Red
+
+p2 = trimesh.load("debug_2_ground_truth.ply")
+p2.visual.vertex_colors = [0, 255, 0, 255] # Green
+
+p3 = trimesh.load("debug_3_partial_sensor.ply")
+p3.visual.vertex_colors = [0, 0, 255, 255] # Blue
+
+trimesh.Scene([p1, p2, p3]).show()
 # import os
 # path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/"
 # # path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/gtdata/"

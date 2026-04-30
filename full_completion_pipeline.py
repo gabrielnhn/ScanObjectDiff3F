@@ -392,6 +392,62 @@ def run_icp(source_np, target_np):
     return np.asarray(source_o3d.points)
 
 
+def save_debug_ply(np_points, filename):
+    import open3d as o3d
+    debug_pcd = o3d.geometry.PointCloud()
+    debug_pcd.points = o3d.utility.Vector3dVector(np_points)
+    
+    # Paint them different colors so you can tell them apart in MeshLab
+    if "out" in filename:
+        debug_pcd.paint_uniform_color([1.0, 0.0, 0.0]) # Red for prediction
+    elif "gt" in filename:
+        debug_pcd.paint_uniform_color([0.0, 1.0, 0.0]) # Green for GT
+    elif "partial" in filename:
+        debug_pcd.paint_uniform_color([0.0, 0.0, 1.0]) # Blue for Partial
+        
+    o3d.io.write_point_cloud(filename, debug_pcd)
+
+
+def preprocess_point_cloud(pcd_np, voxel_size):
+    """Downsamples and computes FPFH features for global alignment."""
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(pcd_np)
+    pcd_down = pcd.voxel_down_sample(voxel_size)
+    
+    radius_normal = voxel_size * 2
+    pcd_down.estimate_normals(
+        o3d.geometry.KDTreeSearchParamHybrid(radius=radius_normal, max_nn=30))
+    
+    radius_feature = voxel_size * 5
+    pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
+        pcd_down,
+        o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=100))
+    return pcd_down, pcd_fpfh
+
+def execute_global_registration(source_np, target_np):
+    """Finds the coarse rotation between two misaligned clouds using RANSAC."""
+    voxel_size = 0.05  # Standard for unit-normalized bounding boxes
+    
+    source_down, source_fpfh = preprocess_point_cloud(source_np, voxel_size)
+    target_down, target_fpfh = preprocess_point_cloud(target_np, voxel_size)
+    
+    result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
+        source_down, 
+        target_down, 
+        source_fpfh, 
+        target_fpfh, 
+        True,
+        max_correspondence_distance=voxel_size * 1.5,  # FIXED KWARG
+        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(False), # FIXED KWARG
+        ransac_n=3,
+        checkers=[
+            o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
+            o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(voxel_size * 1.5)
+        ],
+        criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(100000, 0.999)
+    )
+    return result.transformation
+
 if __name__ == "__main__":
     print("----------")
     device = torch.device("cuda")
@@ -409,8 +465,11 @@ if __name__ == "__main__":
     partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object),
                                         normal_factor=7)
     
-    print("FIND AZIM/ELEV;")
-    best_elev, best_azim = find_best_reference_pov_full(partial_pcd)
+    # print("FIND AZIM/ELEV;")
+    # best_elev, best_azim = find_best_reference_pov_full(partial_pcd)
+    best_elev = 12.016324043273926
+    best_azim = -129.30612182617188
+
     print("GET BEST RGB;")
     canonical_image = get_reference_image(partial_pcd, best_elev, best_azim)
     print("RUN ZERO123++;")
@@ -425,6 +484,7 @@ if __name__ == "__main__":
     # rotate pcd using best elev and azim
     # scale/match because of resolution changes
     # extract np gt pointcloud to run compute_metric()
+
 
     print("STARTING EVALUATION ALIGNMENT;")
     
@@ -443,21 +503,33 @@ if __name__ == "__main__":
 
     out_np_norm = normalize_pc(out_np)
 
-    R, _ = look_at_view_transform(dist=1.0, elev=best_elev, azim=best_azim, device=device)
-    R_np = R[0].cpu().numpy()
-    out_np_rotated = out_np_norm @ R_np
-
     print("RESAMPLING;")
-    out_np_resampled = resample_pcd(out_np_rotated, n_points=16384)
+    out_np_resampled = resample_pcd(out_np_norm, n_points=16384)
     partial_np_resampled = resample_pcd(partial_np_norm, n_points=16384)
     gt_np_resampled = resample_pcd(gt_np_norm, n_points=16384)
 
+    # Let the algorithm automatically find how flipped the bunny is
+    coarse_transform = execute_global_registration(out_np_resampled, partial_np_resampled)
+    
+    # Apply the coarse rotation to the prediction
+    out_o3d = o3d.geometry.PointCloud()
+    out_o3d.points = o3d.utility.Vector3dVector(out_np_resampled)
+    out_o3d.transform(coarse_transform)
+    out_np_coarse = np.asarray(out_o3d.points)
+
+
     print("RUNNING ICP ALIGNMENT (TO SENSOR DATA);")
-    out_np_aligned = run_icp(out_np_resampled, partial_np_resampled)
+    # out_np_aligned = run_icp(out_np_resampled, partial_np_resampled)
+    out_np_aligned = run_icp(out_np_coarse, partial_np_resampled)
 
     print("CALCULATING CHAMFER DISTANCE;")
     out_tensor = torch.tensor(out_np_aligned, dtype=torch.float32, device=device).unsqueeze(0)
     gt_tensor = torch.tensor(gt_np_resampled, dtype=torch.float32, device=device).unsqueeze(0)
+
+    print("SAVING DEBUG POINT CLOUDS;")
+    save_debug_ply(out_np_aligned, "debug_1_prediction_aligned.ply")
+    save_debug_ply(gt_np_resampled, "debug_2_ground_truth.ply")
+    save_debug_ply(partial_np_resampled, "debug_3_partial_sensor.ply")
 
     cd_score = compute_metric(out_tensor, gt_tensor)
     print(f"Final Chamfer Distance (Scaled): {cd_score:.4f}")
