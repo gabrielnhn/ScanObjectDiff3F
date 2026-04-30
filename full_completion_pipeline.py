@@ -299,14 +299,14 @@ def get_imesh_triplane(mv_image):
     image_tensor = images_tensor.unsqueeze(0).to(device, dtype=torch.float16)
     cameras = get_zero123plus_input_cameras(batch_size=1, radius=4.0).to(device, dtype=torch.float16)
 
-    print("4. Loading InstantMesh...")
+    print("Loading InstantMesh...")
     model_ckpt_path = hf_hub_download(
         repo_id="TencentARC/InstantMesh",
         filename="instant_mesh_base.ckpt",
         repo_type="model",
         cache_dir=model_cache_dir
     )
-    # grid_res=64 prevents the SDF OOM crash!
+    
     model = models.lrm_mesh.InstantMesh(grid_res=64)
     state_dict = torch.load(model_ckpt_path, map_location='cpu', weights_only=True)['state_dict']
     state_dict = {k[14:]: v for k, v in state_dict.items() if k.startswith('lrm_generator.') and 'source_camera' not in k}
@@ -315,30 +315,29 @@ def get_imesh_triplane(mv_image):
     model = model.to(device, dtype=torch.float16)
     model.init_flexicubes_geometry(device)
 
-    print("   Extracting 3D Geometry...")
     with torch.no_grad():
         planes = model.forward_planes(image_tensor, cameras)
         
-        # Flush memory right before the FlexiCubes SDF step
         torch.cuda.empty_cache()
         
-        # (Note: make sure you kept your .float() casting fix inside flexicubes_geometry.py!)
         mesh_v, mesh_f, _, _, _, _ = model.get_geometry_prediction(planes)
         vertices = mesh_v[0]
 
     points = vertices.detach().cpu().numpy()
 
-    def save_point_cloud_to_ply(points, filename):
-        with open(filename, 'w') as f:
-            f.write("ply\nformat ascii 1.0\n")
-            f.write(f"element vertex {len(points)}\n")
-            f.write("property float x\nproperty float y\nproperty float z\nend_header\n")
-            for p in points:
-                f.write(f"{p[0]:.6f} {p[1]:.6f} {p[2]:.6f}\n")
+    # def save_point_cloud_to_ply(points, filename):
+    #     with open(filename, 'w') as f:
+    #         f.write("ply\nformat ascii 1.0\n")
+    #         f.write(f"element vertex {len(points)}\n")
+    #         f.write("property float x\nproperty float y\nproperty float z\nend_header\n")
+    #         for p in points:
+    #             f.write(f"{p[0]:.6f} {p[1]:.6f} {p[2]:.6f}\n")
 
-    output_filename = "IMESH.ply"
-    save_point_cloud_to_ply(points, output_filename)
-    print(f"Success! Point cloud saved to {output_filename}")
+    # output_filename = "IMESH.ply"
+    # save_point_cloud_to_ply(points, output_filename)
+    # print(f"Success! Point cloud saved to {output_filename}")
+    return points
+
 
 from pytorch3d.loss import chamfer_distance
 
@@ -349,9 +348,6 @@ def compute_metric(p1, p2):
     return cd_l1.item()
 
 def resample_pcd(pcd_np, n_points=16384):
-    """
-    Standardizes point cloud resolution to 16,384 points[cite: 1].
-    """
     if len(pcd_np) > n_points:
         idx = np.random.choice(len(pcd_np), n_points, replace=False)
         return pcd_np[idx]
@@ -361,6 +357,41 @@ def resample_pcd(pcd_np, n_points=16384):
     return pcd_np
 
 
+import open3d as o3d
+import copy
+
+def normalize_pc(pcd_np):
+    """Centers the point cloud at the origin and scales it to a unit bounding box."""
+    centroid = np.mean(pcd_np, axis=0)
+    pcd_np_centered = pcd_np - centroid
+    max_distance = np.max(np.sqrt(np.sum(pcd_np_centered**2, axis=1)))
+    if max_distance == 0: 
+        max_distance = 1.0
+    pcd_np_normalized = pcd_np_centered / max_distance
+    return pcd_np_normalized
+
+def run_icp(source_np, target_np):
+    """Runs Open3D ICP to perfectly align source to target."""
+    source_o3d = o3d.geometry.PointCloud()
+    source_o3d.points = o3d.utility.Vector3dVector(source_np)
+    
+    target_o3d = o3d.geometry.PointCloud()
+    target_o3d.points = o3d.utility.Vector3dVector(target_np)
+
+    # Point-to-point ICP
+    threshold = 0.1 # Search radius (slightly larger to catch rotation offsets)
+    trans_init = np.eye(4)
+
+    reg_p2p = o3d.pipelines.registration.registration_icp(
+        source_o3d, target_o3d, threshold, trans_init,
+        o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=2000)
+    )
+    
+    source_o3d.transform(reg_p2p.transformation)
+    return np.asarray(source_o3d.points)
+
+
 if __name__ == "__main__":
     print("----------")
     device = torch.device("cuda")
@@ -368,7 +399,7 @@ if __name__ == "__main__":
     # object = "horse.ply"
     object = "stanford-bunny.ply"
     
-    renders_dir = os.path.join(renders_dir, object.split("."))
+    renders_dir = os.path.join(renders_dir, object.split(".")[0])
     # renders_dir = "renders"
     if not os.path.isdir(renders_dir):
         os.mkdir(renders_dir)
@@ -387,4 +418,46 @@ if __name__ == "__main__":
     print("RUN INSTANTMESH FORWARD PASS;")
     out_points = get_imesh_triplane(mv_image)
     
+    # eval
+    gt_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "gtdata", object), normal_factor=0)
     
+    # TODO
+    # rotate pcd using best elev and azim
+    # scale/match because of resolution changes
+    # extract np gt pointcloud to run compute_metric()
+
+    print("STARTING EVALUATION ALIGNMENT;")
+    
+    gt_np = gt_pcd.points_list()[0].cpu().numpy()
+    partial_np = partial_pcd.points_list()[0].cpu().numpy()
+    out_np = out_points 
+
+    gt_centroid = np.mean(gt_np, axis=0)
+    gt_np_centered = gt_np - gt_centroid
+    gt_scale = np.max(np.sqrt(np.sum(gt_np_centered**2, axis=1)))
+    if gt_scale == 0:
+        gt_scale = 1.0
+    
+    gt_np_norm = gt_np_centered / gt_scale
+    partial_np_norm = (partial_np - gt_centroid) / gt_scale # Uses GT scale!
+
+    out_np_norm = normalize_pc(out_np)
+
+    R, _ = look_at_view_transform(dist=1.0, elev=best_elev, azim=best_azim, device=device)
+    R_np = R[0].cpu().numpy()
+    out_np_rotated = out_np_norm @ R_np
+
+    print("RESAMPLING;")
+    out_np_resampled = resample_pcd(out_np_rotated, n_points=16384)
+    partial_np_resampled = resample_pcd(partial_np_norm, n_points=16384)
+    gt_np_resampled = resample_pcd(gt_np_norm, n_points=16384)
+
+    print("RUNNING ICP ALIGNMENT (TO SENSOR DATA);")
+    out_np_aligned = run_icp(out_np_resampled, partial_np_resampled)
+
+    print("CALCULATING CHAMFER DISTANCE;")
+    out_tensor = torch.tensor(out_np_aligned, dtype=torch.float32, device=device).unsqueeze(0)
+    gt_tensor = torch.tensor(gt_np_resampled, dtype=torch.float32, device=device).unsqueeze(0)
+
+    cd_score = compute_metric(out_tensor, gt_tensor)
+    print(f"Final Chamfer Distance (Scaled): {cd_score:.4f}")

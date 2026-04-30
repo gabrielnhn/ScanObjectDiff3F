@@ -9,7 +9,6 @@ from einops import rearrange
 from huggingface_hub import hf_hub_download
 from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler
 
-# TRICK PYTHON: Fake nvdiffrast to bypass rasterizer
 from unittest.mock import MagicMock
 sys.modules['nvdiffrast'] = MagicMock()
 sys.modules['nvdiffrast.torch'] = MagicMock()

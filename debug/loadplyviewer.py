@@ -26,11 +26,11 @@ import trimesh
 # trimesh.load(f"/home/gabrielnhn/LGM/workspace/white bunny/gradio_output.ply").show()
 
 
-# trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
 # trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/horse.ply").show()
 
-trimesh.load("polyscope-IMESH.ply").show()
-trimesh.load("normalbunny-IMESH.ply").show()
+trimesh.load(f"/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/stanford-bunny.ply").show()
+trimesh.load("IMESH.ply").show()
+# trimesh.load("normalbunny-IMESH.ply").show()
 
 # import os
 # path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj/indata/"
