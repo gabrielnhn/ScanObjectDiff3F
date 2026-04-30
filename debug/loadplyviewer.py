@@ -35,7 +35,7 @@ import trimesh
 
 import trimesh
 
-p1 = trimesh.load("debug_1_prediction_aligned.ply")
+p1 = trimesh.load("debug_1_prediction_deterministic.ply")
 # p1 = trimesh.load(f"final_instantmesh_shape.ply")
 p1.visual.vertex_colors = [255, 0, 0, 255] # Red
 

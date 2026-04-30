@@ -486,8 +486,9 @@ if __name__ == "__main__":
     # extract np gt pointcloud to run compute_metric()
 
 
-    print("STARTING EVALUATION ALIGNMENT;")
+    print("STARTING DETERMINISTIC ALIGNMENT;")
     
+    # 1. Extract and Normalize (Keep this from before)
     gt_np = gt_pcd.points_list()[0].cpu().numpy()
     partial_np = partial_pcd.points_list()[0].cpu().numpy()
     out_np = out_points 
@@ -495,41 +496,68 @@ if __name__ == "__main__":
     gt_centroid = np.mean(gt_np, axis=0)
     gt_np_centered = gt_np - gt_centroid
     gt_scale = np.max(np.sqrt(np.sum(gt_np_centered**2, axis=1)))
-    if gt_scale == 0:
-        gt_scale = 1.0
+    if gt_scale == 0: gt_scale = 1.0
     
     gt_np_norm = gt_np_centered / gt_scale
-    partial_np_norm = (partial_np - gt_centroid) / gt_scale # Uses GT scale!
-
+    partial_np_norm = (partial_np - gt_centroid) / gt_scale 
     out_np_norm = normalize_pc(out_np)
 
-    print("RESAMPLING;")
-    out_np_resampled = resample_pcd(out_np_norm, n_points=16384)
+    # ==========================================================
+    # 2. THE CONSTANT AXIS CORRECTION (InstantMesh -> PyTorch3D View)
+    # InstantMesh is Z-Up. PyTorch3D View is Y-Up. 
+    # We rotate 90 degrees around X to bring Z up to Y.
+    # Depending on the Zero123++ azimuth, you might need a 90-degree yaw.
+    # ==========================================================
+    
+    # Start with identity
+    M_offset = np.eye(3) 
+    
+    # Flips Z-up to Y-up (Standard OpenGL to PyTorch3D bridge)
+    flip_matrix = np.array([
+        [ 1,  0,  0],
+        [ 0,  0, -1],
+        [ 0,  1,  0]
+    ])
+    
+    # If the bunny is facing 90 degrees the wrong way (like in your image),
+    # change this yaw value to 90, -90, or 180 to snap it into place.
+    yaw_degrees = 90  # <-- CHANGE THIS IF IT FACES THE WRONG WAY
+    yaw_rad = np.radians(yaw_degrees)
+    yaw_matrix = np.array([
+        [ np.cos(yaw_rad), 0, np.sin(yaw_rad)],
+        [ 0,               1, 0              ],
+        [-np.sin(yaw_rad), 0, np.cos(yaw_rad)]
+    ])
+    
+    M_offset = flip_matrix @ yaw_matrix
+    
+    # Apply constant correction
+    out_np_view_space = out_np_norm @ M_offset
+
+    # ==========================================================
+    # 3. VIEW TO WORLD SPACE (The Deterministic Reversal)
+    # ==========================================================
+    R, _ = look_at_view_transform(dist=1.0, elev=best_elev, azim=best_azim, device=device)
+    R_np = R[0].cpu().numpy()
+    
+    # Multiply by the inverse (Transpose) of PyTorch3D's matrix
+    out_np_deterministic = out_np_view_space @ R_np.T
+
+    print("RESAMPLING FOR METRICS;")
+    out_np_resampled = resample_pcd(out_np_deterministic, n_points=16384)
     partial_np_resampled = resample_pcd(partial_np_norm, n_points=16384)
     gt_np_resampled = resample_pcd(gt_np_norm, n_points=16384)
 
-    # Let the algorithm automatically find how flipped the bunny is
-    coarse_transform = execute_global_registration(out_np_resampled, partial_np_resampled)
-    
-    # Apply the coarse rotation to the prediction
-    out_o3d = o3d.geometry.PointCloud()
-    out_o3d.points = o3d.utility.Vector3dVector(out_np_resampled)
-    out_o3d.transform(coarse_transform)
-    out_np_coarse = np.asarray(out_o3d.points)
-
-
-    print("RUNNING ICP ALIGNMENT (TO SENSOR DATA);")
+    # Optional: Run a tiny ICP just for the final metric calculation to account 
+    # for the bounding box scale variance, but NOT for massive rotations.
+    # print("RUNNING MICRO-ICP (Scale/Translation correction only);")
     # out_np_aligned = run_icp(out_np_resampled, partial_np_resampled)
-    out_np_aligned = run_icp(out_np_coarse, partial_np_resampled)
-
-    print("CALCULATING CHAMFER DISTANCE;")
-    out_tensor = torch.tensor(out_np_aligned, dtype=torch.float32, device=device).unsqueeze(0)
-    gt_tensor = torch.tensor(gt_np_resampled, dtype=torch.float32, device=device).unsqueeze(0)
 
     print("SAVING DEBUG POINT CLOUDS;")
-    save_debug_ply(out_np_aligned, "debug_1_prediction_aligned.ply")
+    save_debug_ply(out_np_resampled, "debug_1_prediction_deterministic.ply")
     save_debug_ply(gt_np_resampled, "debug_2_ground_truth.ply")
     save_debug_ply(partial_np_resampled, "debug_3_partial_sensor.ply")
+    
 
-    cd_score = compute_metric(out_tensor, gt_tensor)
+    cd_score = compute_metric(out_np_resampled, gt_np_resampled)
     print(f"Final Chamfer Distance (Scaled): {cd_score:.4f}")
