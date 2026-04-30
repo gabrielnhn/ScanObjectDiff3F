@@ -33,7 +33,9 @@ import trimesh
 # trimesh.load("normalbunny-IMESH.ply").show()
 
 
-import trimesh
+
+trimesh.load("debug_1_prediction_deterministic.ply").show()
+
 
 p1 = trimesh.load("debug_1_prediction_deterministic.ply")
 # p1 = trimesh.load(f"final_instantmesh_shape.ply")

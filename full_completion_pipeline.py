@@ -48,7 +48,11 @@ sys.modules['nvdiffrast.torch'] = MagicMock()
 
 sys.path.append("./instantmesh")
 import models.lrm_mesh
-from utils.camera_util import get_zero123plus_input_cameras
+from utils.camera_util import (
+    get_zero123plus_input_cameras,
+    FOV_to_intrinsics,
+    spherical_camera_pose
+)
 
 device = "cuda"
 model_cache_dir = './ckpts/'
@@ -222,11 +226,11 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
     # renderer = PhongCircleRenderer(background_color=(0.0,0.0,0.0)).to(device)
-    renderer = PhongCircleRenderer(background_color=(1.0,1.0,1.0)).to(device)
-    # renderer = NormalsRenderer(
-    #     # background_color=(0.5,0.5,0.5),
-    #     background_color=(0.0,0.0,0.0),
-    #     cameras=cameras).to(device)
+    # renderer = PhongCircleRenderer(background_color=(1.0,1.0,1.0)).to(device)
+    renderer = NormalsRenderer(
+        # background_color=(0.5,0.5,0.5),
+        background_color=(0.0,0.0,0.0),
+        cameras=cameras).to(device)
     
     fragments = rasterizer(pcd)
     images = renderer(fragments, pcd).cpu()
@@ -294,19 +298,50 @@ def get_mv_images(canonical_img):
     del pipeline
     gc.collect()
     torch.cuda.empty_cache()
-    return z123_image
+    return z123_image, processed_image
 
 
-def get_imesh_triplane(mv_image):
-    
+def get_imesh_triplane(
+    mv_image,
+    processed_canonical_image,
+    best_elev,
+    best_azim
+):
     # Convert the 960x640 grid directly into a [6, 3, 320, 320] tensor using einops (Zero cropping mistakes!)
     images_arr = np.asarray(mv_image, dtype=np.float32) / 255.0
     images_tensor = torch.from_numpy(images_arr).permute(2, 0, 1).contiguous()
     images_tensor = rearrange(images_tensor, 'c (n h) (m w) -> (n m) c h w', n=3, m=2)
 
+
     # Batch it and cast to FP16
     image_tensor = images_tensor.unsqueeze(0).to(device, dtype=torch.float16)
     cameras = get_zero123plus_input_cameras(batch_size=1, radius=4.0).to(device, dtype=torch.float16)
+
+    print("   Injecting Canonical GT View as 7th Input...")
+
+    # Ensure processed_canonical_image is a 320x320 PIL Image or Numpy array
+    canon_arr = np.asarray(processed_canonical_image, dtype=np.float32) / 255.0
+    canon_tensor = torch.from_numpy(canon_arr).permute(2, 0, 1).contiguous()
+    canon_tensor = canon_tensor.unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float16) # [1, 1, 3, 320, 320]
+
+    # Append to the Zero123++ hallucinated views
+    image_tensor = torch.cat([image_tensor, canon_tensor], dim=1) # Now [1, 7, 3, 320, 320]
+
+    # 2. Format the Canonical Camera Matrix (Azimuth 0, Elevation 0, Radius 4.0)
+    canon_c2w = spherical_camera_pose(np.array([0.0]), np.array([0.0]), radius=4.0)
+    canon_c2w = canon_c2w.float().flatten(-2) # [1, 16]
+
+    # Zero123++ hallucinated views use FOV 30, but our GT render uses FOV 60
+    canon_K = FOV_to_intrinsics(60.0).unsqueeze(0).float().flatten(-2) # [1, 9]
+
+    # Combine Extrinsics and Intrinsics exactly like InstantMesh does
+    canon_ext = canon_c2w[:, :12]
+    canon_int = torch.stack([canon_K[:, 0], canon_K[:, 4], canon_K[:, 2], canon_K[:, 5]], dim=-1)
+    canon_cam = torch.cat([canon_ext, canon_int], dim=-1)
+    canon_cam = canon_cam.unsqueeze(0).to(device, dtype=torch.float16) # [1, 1, 16]
+
+    # Append to the Zero123++ cameras
+    cameras = torch.cat([cameras, canon_cam], dim=1) # Now [1, 7, 16]
 
     print("Loading InstantMesh...")
     model_ckpt_path = hf_hub_download(
@@ -324,27 +359,13 @@ def get_imesh_triplane(mv_image):
     model = model.to(device, dtype=torch.float16)
     model.init_flexicubes_geometry(device)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         planes = model.forward_planes(image_tensor, cameras)
-        
         torch.cuda.empty_cache()
-        
         mesh_v, mesh_f, _, _, _, _ = model.get_geometry_prediction(planes)
         vertices = mesh_v[0]
 
     points = vertices.detach().cpu().numpy()
-
-    # def save_point_cloud_to_ply(points, filename):
-    #     with open(filename, 'w') as f:
-    #         f.write("ply\nformat ascii 1.0\n")
-    #         f.write(f"element vertex {len(points)}\n")
-    #         f.write("property float x\nproperty float y\nproperty float z\nend_header\n")
-    #         for p in points:
-    #             f.write(f"{p[0]:.6f} {p[1]:.6f} {p[2]:.6f}\n")
-
-    # output_filename = "IMESH.ply"
-    # save_point_cloud_to_ply(points, output_filename)
-    # print(f"Success! Point cloud saved to {output_filename}")
     return points
 
 
@@ -424,19 +445,19 @@ if __name__ == "__main__":
                                         normal_factor=7)
     
     # print("FIND AZIM/ELEV;")
-    best_elev, best_azim = find_best_reference_pov_full(partial_pcd)
-    # best_elev = 12.016324043273926
-    # best_azim = -129.30612182617188
+    # best_elev, best_azim = find_best_reference_pov_full(partial_pcd)
+    best_elev = 12.016324043273926
+    best_azim = -129.30612182617188
 
     print("GET BEST RGB;")
     canonical_image = get_reference_image(partial_pcd, best_elev, best_azim)
     
-    exit()
+    # exit()
     
     print("RUN ZERO123++;")
-    mv_image = get_mv_images(canonical_image)
+    mv_image, resized_canonical = get_mv_images(canonical_image)
     print("RUN INSTANTMESH FORWARD PASS;")
-    out_points = get_imesh_triplane(mv_image)
+    out_points = get_imesh_triplane(mv_image, resized_canonical, best_elev, best_azim)
     
     # eval
     gt_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "gtdata", object), normal_factor=0)
@@ -512,5 +533,5 @@ if __name__ == "__main__":
     save_debug_ply(partial_np_resampled, "debug_3_partial_sensor.ply")
     
 
-    cd_score = compute_metric(out_np_resampled, gt_np_resampled)
-    print(f"Final Chamfer Distance (Scaled): {cd_score:.4f}")
+    # cd_score = compute_metric(out_np_resampled, gt_np_resampled)
+    # print(f"Final Chamfer Distance (Scaled): {cd_score:.4f}")
