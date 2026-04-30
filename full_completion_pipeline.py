@@ -6,7 +6,8 @@ from tqdm import tqdm
 import cv2 as cv
 from PIL import Image
 
-RESOLUTION = 512
+# RESOLUTION = 512
+RESOLUTION = 320
 
 from pytorch3d.renderer import (
     look_at_view_transform,
@@ -58,7 +59,7 @@ renders_dir = "renders"
 if not os.path.isdir(renders_dir):
     os.mkdir(renders_dir)    
 
-def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.1):
+def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.6):
     """
     Combines COMPC (Chamfer Distance + Depth Regularization) 
     with OpenCV Depth-Edge Contour detection.
@@ -71,7 +72,8 @@ def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.1):
     bbox_min = bbox.min(dim=-1).values[0]
     bbox_max = bbox.max(dim=-1).values[0]
     bbox_center = (bbox_min + bbox_max) / 2.0
-    distance = torch.sqrt(((bbox_max - bbox_min) ** 2).sum()) * 0.65
+    # distance = torch.sqrt(((bbox_max - bbox_min) ** 2).sum()) * 0.65
+    distance = 4.0
 
     # Raster settings - image_size 512 for better contour precision
     image_size = RESOLUTION
@@ -105,7 +107,9 @@ def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.1):
             chunk_azims = horss[i:i+batch_size]
             
             R, T = look_at_view_transform(dist=distance, elev=chunk_elevs, azim=chunk_azims, device=device, at=bbox_center.unsqueeze(0))
-            cameras = PerspectiveCameras(device=device, R=R, T=T)
+            # cameras = PerspectiveCameras(device=device, R=R, T=T)
+            cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=30.0)
+            
             rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
             
             pcd_batch = pcd.extend(len(chunk_elevs))
@@ -155,12 +159,13 @@ def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.1):
                     best_azim = chunk_azims[b].item()
                     
                     # Prepare debug image (convert to BGR for colorful contours)
-                    # color_img = cv.cvtColor(d_img, cv.COLOR_GRAY2BGR)
-                    # for cnt in contours:
-                    #     cv.drawContours(color_img, [cnt], -1, (random.randint(0,255), 
-                    #                                           random.randint(0,255), 
-                    #                                           random.randint(0,255)), 1)
-                    # best_img_to_save = color_img
+                    import random
+                    color_img = cv.cvtColor(d_img, cv.COLOR_GRAY2BGR)
+                    for cnt in contours:
+                        cv.drawContours(color_img, [cnt], -1, (random.randint(0,255), 
+                                                              random.randint(0,255), 
+                                                              random.randint(0,255)), 1)
+                    best_img_to_save = color_img
             
             del pcd_batch, fragments, cameras, rasterizer
             torch.cuda.empty_cache() 
@@ -172,8 +177,11 @@ def find_best_reference_pov_full(pcd, pose_w=0.5, edge_w=0.1):
         starth, endh = best_azim - interh, best_azim + interh
         best_final_elev, best_final_azim = best_elev, best_azim
         
-        # if best_img_to_save is not None:
-        #     cv.imwrite(f"reference_test/combined-{j}-{best_elev:.1f}-{best_azim:.1f}.jpg", best_img_to_save)
+        if best_img_to_save is not None:
+            cv.imwrite(os.path.join(
+                        renders_dir, f"combined-{j}-{best_elev:.1f}-{best_azim:.1f}.jpg")
+                       ,
+                       best_img_to_save)
 
     print(f"Optimal POV Found -> Azimuth: {best_final_azim:.1f}°, Elevation: {best_final_elev:.1f}°")
     return best_final_elev, best_final_azim
@@ -187,7 +195,8 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     bbox_max = bbox.max(dim=-1).values[0]
     bb_diff = bbox_max - bbox_min
     bbox_center = (bbox_min + bbox_max) / 2.0
-    distance = torch.sqrt((bb_diff * bb_diff).sum()) * 0.65
+    # distance = torch.sqrt((bb_diff * bb_diff).sum()) * 0.65
+    distance = 4.0
     
     azimuths = [best_azim]
     elevations = [best_elev]
@@ -196,17 +205,25 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
                                   azim=torch.tensor(azimuths, device=device), device=device, 
                                   at=bbox_center.unsqueeze(0))
     
-    # cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=60.0)
-    cameras = PerspectiveCameras(device=device, R=R, T=T)
+    cameras = FoVPerspectiveCameras(device=device, R=R, T=T, fov=30.0)
+    # cameras = PerspectiveCameras(device=device, R=R, T=T)
     
+    # raster_settings = PointsRasterizationSettings(
+    #     image_size=(H, W),
+    #     radius=0.01,
+    #     points_per_pixel=1,
+    #     bin_size=0)
+    # 3. FIXED RESOLUTION (320x320 from ValidationData)
     raster_settings = PointsRasterizationSettings(
         image_size=(H, W),
         radius=0.01,
         points_per_pixel=1,
-        bin_size=0)
+        bin_size=0
+    )
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    renderer = PhongCircleRenderer(background_color=(0.0,0.0,0.0)).to(device)
+    # renderer = PhongCircleRenderer(background_color=(0.0,0.0,0.0)).to(device)
+    renderer = PhongCircleRenderer(background_color=(1.0,1.0,1.0)).to(device)
     # renderer = NormalsRenderer(
     #     # background_color=(0.5,0.5,0.5),
     #     background_color=(0.0,0.0,0.0),
@@ -222,11 +239,6 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     return images, depth
 
 def get_reference_image(pcd, best_elev, best_azim):
-    
-    # t1 = time()
-    # best_elev = 12.016324043273926
-    # best_azim = -129.30612182617188
-    # exit()
     print("Rendering PyTorch3D Reference Image and Depth...")
     # Unpack both the images and the depth tensor
     batched_imgs, depth_tensor = render_with_pytorch3d(device, pcd, best_elev, best_azim)
@@ -234,9 +246,6 @@ def get_reference_image(pcd, best_elev, best_azim):
     ref_rgb = batched_imgs[0].cpu().numpy()
     ref_rgb = (ref_rgb * 255).astype(np.uint8)
     import cv2
-    # cv2.imwrite(os.path.join(renders_dir, "REFERENCE-rgb.png"), ref_rgb)
-    # exit()
-        
     ref_alpha = torch.zeros_like(depth_tensor[0], dtype=torch.uint8)
     ref_alpha[depth_tensor[0] > 0] = 255
     ref_alpha = ref_alpha.cpu().numpy()[..., None] # Add channel dimension
@@ -279,7 +288,8 @@ def get_mv_images(canonical_img):
 
     print("   Generating 6 multi-views...")
     z123_image = pipeline(processed_image, num_inference_steps=50).images[0]
-    # z123_image.save(shape+"-zero123.png")
+    z123_image.save(os.path.join(renders_dir, "MV.png"))
+    
     #exit()
     print("   Flushing Zero123++ from VRAM...")
     del pipeline
@@ -391,62 +401,11 @@ def run_icp(source_np, target_np):
     source_o3d.transform(reg_p2p.transformation)
     return np.asarray(source_o3d.points)
 
-
 def save_debug_ply(np_points, filename):
     import open3d as o3d
     debug_pcd = o3d.geometry.PointCloud()
     debug_pcd.points = o3d.utility.Vector3dVector(np_points)
-    
-    # Paint them different colors so you can tell them apart in MeshLab
-    if "out" in filename:
-        debug_pcd.paint_uniform_color([1.0, 0.0, 0.0]) # Red for prediction
-    elif "gt" in filename:
-        debug_pcd.paint_uniform_color([0.0, 1.0, 0.0]) # Green for GT
-    elif "partial" in filename:
-        debug_pcd.paint_uniform_color([0.0, 0.0, 1.0]) # Blue for Partial
-        
     o3d.io.write_point_cloud(filename, debug_pcd)
-
-
-def preprocess_point_cloud(pcd_np, voxel_size):
-    """Downsamples and computes FPFH features for global alignment."""
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(pcd_np)
-    pcd_down = pcd.voxel_down_sample(voxel_size)
-    
-    radius_normal = voxel_size * 2
-    pcd_down.estimate_normals(
-        o3d.geometry.KDTreeSearchParamHybrid(radius=radius_normal, max_nn=30))
-    
-    radius_feature = voxel_size * 5
-    pcd_fpfh = o3d.pipelines.registration.compute_fpfh_feature(
-        pcd_down,
-        o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=100))
-    return pcd_down, pcd_fpfh
-
-def execute_global_registration(source_np, target_np):
-    """Finds the coarse rotation between two misaligned clouds using RANSAC."""
-    voxel_size = 0.05  # Standard for unit-normalized bounding boxes
-    
-    source_down, source_fpfh = preprocess_point_cloud(source_np, voxel_size)
-    target_down, target_fpfh = preprocess_point_cloud(target_np, voxel_size)
-    
-    result = o3d.pipelines.registration.registration_ransac_based_on_feature_matching(
-        source_down, 
-        target_down, 
-        source_fpfh, 
-        target_fpfh, 
-        True,
-        max_correspondence_distance=voxel_size * 1.5,  # FIXED KWARG
-        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(False), # FIXED KWARG
-        ransac_n=3,
-        checkers=[
-            o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
-            o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(voxel_size * 1.5)
-        ],
-        criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(100000, 0.999)
-    )
-    return result.transformation
 
 if __name__ == "__main__":
     print("----------")
@@ -466,9 +425,9 @@ if __name__ == "__main__":
                                         normal_factor=7)
     
     # print("FIND AZIM/ELEV;")
-    # best_elev, best_azim = find_best_reference_pov_full(partial_pcd)
-    best_elev = 12.016324043273926
-    best_azim = -129.30612182617188
+    best_elev, best_azim = find_best_reference_pov_full(partial_pcd)
+    # best_elev = 12.016324043273926
+    # best_azim = -129.30612182617188
 
     print("GET BEST RGB;")
     canonical_image = get_reference_image(partial_pcd, best_elev, best_azim)
@@ -485,10 +444,8 @@ if __name__ == "__main__":
     # scale/match because of resolution changes
     # extract np gt pointcloud to run compute_metric()
 
-
     print("STARTING DETERMINISTIC ALIGNMENT;")
     
-    # 1. Extract and Normalize (Keep this from before)
     gt_np = gt_pcd.points_list()[0].cpu().numpy()
     partial_np = partial_pcd.points_list()[0].cpu().numpy()
     out_np = out_points 
@@ -502,12 +459,9 @@ if __name__ == "__main__":
     partial_np_norm = (partial_np - gt_centroid) / gt_scale 
     out_np_norm = normalize_pc(out_np)
 
-    # ==========================================================
-    # 2. THE CONSTANT AXIS CORRECTION (InstantMesh -> PyTorch3D View)
     # InstantMesh is Z-Up. PyTorch3D View is Y-Up. 
     # We rotate 90 degrees around X to bring Z up to Y.
     # Depending on the Zero123++ azimuth, you might need a 90-degree yaw.
-    # ==========================================================
     
     # Start with identity
     M_offset = np.eye(3) 
@@ -534,9 +488,6 @@ if __name__ == "__main__":
     # Apply constant correction
     out_np_view_space = out_np_norm @ M_offset
 
-    # ==========================================================
-    # 3. VIEW TO WORLD SPACE (The Deterministic Reversal)
-    # ==========================================================
     R, _ = look_at_view_transform(dist=1.0, elev=best_elev, azim=best_azim, device=device)
     R_np = R[0].cpu().numpy()
     
