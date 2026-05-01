@@ -305,8 +305,8 @@ def get_mv_images(canonical_img):
         num_inference_steps=50, 
         guidance_scale=7.5,
         generator=generator,
-        prompt="high quality, clay material, complete",
-        negative_prompt="complex, detailed, chaotic, asymmetric, text, logo",
+        # prompt="high quality, clay material, complete",
+        # negative_prompt="complex, detailed, chaotic, asymmetric, text, logo",
     ).images[0]
     z123_image.save(os.path.join(renders_dir, "MV.png"))
     
@@ -384,8 +384,8 @@ from pytorch3d.loss import chamfer_distance
 from pytorch3d.structures import Pointclouds
 
 def compute_metric(p1, p2):
-    p1 = Pointclouds(torch.tensor(p1).unsqueeze(0))
-    p2 = Pointclouds(torch.tensor(p2).unsqueeze(0))
+    p1 = Pointclouds(torch.tensor(p1).float().unsqueeze(0))
+    p2 = Pointclouds(torch.tensor(p2).float().unsqueeze(0))
     cd_l1_raw, _ = chamfer_distance(p1, p2, norm=1, point_reduction='mean')
     cd_l1 = cd_l1_raw * 100  # Scaling by 10^2
     return cd_l1.item()
@@ -444,9 +444,9 @@ if __name__ == "__main__":
     print("----------")
     device = torch.device("cuda")
     dataset_path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj"    
-    # object = "horse.ply"
+    object = "horse.ply"
     # object = "stanford-bunny.ply"
-    object = "cow.ply"
+    # object = "cow.ply"
     
     renders_dir = os.path.join(renders_dir, object.split(".")[0])
     if not os.path.isdir(renders_dir):

@@ -50,15 +50,10 @@ class PhongCircleRenderer(nn.Module):
         specular_term = torch.pow(torch.clamp(n_dot_h, min=0.0), self.shininess)
         specular_term = torch.where(n_dot_l > 0, specular_term, torch.zeros_like(specular_term))
 
-        shaded_features = features * (self.ambient + self.diffuse * diffuse_term) + (self.specular * specular_term)
+        # shaded_features = features * (self.ambient + self.diffuse * diffuse_term) + (self.specular * specular_term)
+        shaded_features = features * (self.ambient + self.diffuse * diffuse_term)
         shaded_features = torch.clamp(shaded_features, 0.0, 1.0)
         shaded_features = shaded_features.permute(1, 0)
-
-        
-                
-        # shaded_features = features * (self.ambient + self.diffuse * diffuse_term)
-        # shaded_features = torch.clamp(shaded_features, 0.0, 1.0)
-        # shaded_features = shaded_features.permute(1, 0)
 
         images = self.compositor(indices, weights, shaded_features)
         return images.permute(0, 2, 3, 1)
