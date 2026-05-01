@@ -37,10 +37,12 @@ import os
 # p1 = trimesh.load(f"final_instantmesh_shape.ply")
 
 
-renders_dir = "./renders/horse/"
-# renders_dir = "./renders/cow/"
+# renders_dir = "./renders/horse/"
+renders_dir = "./renders/cow/"
 # renders_dir = "./renders/stanford-bunny/"
-path1 = os.path.join(renders_dir, "debug_1_prediction_deterministic.ply")
+path1 = os.path.join(renders_dir, "1view.ply")
+# path1 = os.path.join(renders_dir, "debug_1_prediction_deterministic.ply")
+# path1 = os.path.join(renders_dir, "7views.ply")
 
 
 

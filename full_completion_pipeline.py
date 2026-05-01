@@ -7,7 +7,8 @@ import cv2 as cv
 from PIL import Image
 
 RESOLUTION = 512
-CANON_ONLY = False
+# CANON_ONLY = False
+CANON_ONLY = True
 # RESOLUTION = 320
 
 from pytorch3d.renderer import (
@@ -444,9 +445,9 @@ if __name__ == "__main__":
     print("----------")
     device = torch.device("cuda")
     dataset_path = "/home/gabrielnhn/datasets/synthetic_redwood/upload/plyobj"    
-    object = "horse.ply"
+    # object = "horse.ply"
     # object = "stanford-bunny.ply"
-    # object = "cow.ply"
+    object = "cow.ply"
     
     renders_dir = os.path.join(renders_dir, object.split(".")[0])
     if not os.path.isdir(renders_dir):
@@ -455,7 +456,7 @@ if __name__ == "__main__":
     from pc_utils import load_ply_to_pytorch3d 
     print("LOADING PCD;")
     partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object),
-                                        normal_factor=10)
+                                        normal_factor=5)
     
     angles = {
         "stanford-bunny.ply": (12.016324043273926, -129.30612182617188),
@@ -500,14 +501,12 @@ if __name__ == "__main__":
         [ 0,  1,  0],
         [ 0,  0,  1]
     ])
-
-    # 2. Z-Up to Y-Up
+    # Z-Up to Y-Up
     flip_matrix = np.array([
         [ 1,  0,  0],
         [ 0,  0, -1],
         [ 0,  1,  0]
     ])
-    
     yaw_degrees = 90
     yaw_rad = np.radians(yaw_degrees)
     yaw_matrix = np.array([
@@ -515,17 +514,14 @@ if __name__ == "__main__":
         [ 0,               1, 0              ],
         [-np.sin(yaw_rad), 0, np.cos(yaw_rad)]
     ])
-    
-    # Combine them in strict order: Mirror -> Y-Up -> Yaw
     M_offset = mirror_matrix @ flip_matrix @ yaw_matrix
     
-    # Apply constant correction
     out_np_view_space = out_np_norm @ M_offset
 
     R, _ = look_at_view_transform(dist=1.0, elev=best_elev, azim=best_azim, device=device)
     R_np = R[0].cpu().numpy()
     
-    # Multiply by the inverse (Transpose) of PyTorch3D's matrix
+    # tranp=inverse
     out_np_deterministic = out_np_view_space @ R_np.T
 
     print("RESAMPLING FOR METRICS;")
@@ -534,7 +530,12 @@ if __name__ == "__main__":
     gt_np_resampled = resample_pcd(gt_np_norm, n_points=16384)
 
     print("SAVING DEBUG POINT CLOUDS;")
-    save_debug_ply(out_np_resampled, os.path.join(renders_dir, "debug_1_prediction_deterministic.ply"))
+    
+    if CANON_ONLY:
+        save_debug_ply(out_np_resampled, os.path.join(renders_dir, "1view.ply"))
+    else:
+        save_debug_ply(out_np_resampled, os.path.join(renders_dir, "7views.ply"))
+        
     save_debug_ply(gt_np_resampled, os.path.join(renders_dir, "debug_2_ground_truth.ply"))
     save_debug_ply(partial_np_resampled, os.path.join(renders_dir, "debug_3_partial_sensor.ply"))
     
