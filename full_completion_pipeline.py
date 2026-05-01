@@ -299,19 +299,17 @@ def get_mv_images(canonical_img):
     pipeline.unet.load_state_dict(torch.load(unet_ckpt_path, map_location='cpu'), strict=True)
     pipeline = pipeline.to(device)
 
-    print("   Generating 6 multi-views...")
+    print("Zero123++...")
     z123_image = pipeline(
         processed_image,
         num_inference_steps=50, 
         guidance_scale=7.5,
         generator=generator,
-        prompt="high quality, clay material, clear image of an object",
-        negative_prompt="complex, detailed, chaotic, asymmetric, text, logo, weird, abstract",
+        prompt="high quality, clay material, complete",
+        negative_prompt="complex, detailed, chaotic, asymmetric, text, logo",
     ).images[0]
     z123_image.save(os.path.join(renders_dir, "MV.png"))
     
-    #exit()
-    print("   Flushing Zero123++ from VRAM...")
     del pipeline
     gc.collect()
     torch.cuda.empty_cache()
@@ -334,15 +332,12 @@ def get_imesh_triplane(
         image_tensor = images_tensor.unsqueeze(0).to(device, dtype=torch.float16)
         cameras = get_zero123plus_input_cameras(batch_size=1, radius=4.0).to(device, dtype=torch.float16)
 
-    # Ensure processed_canonical_image is a 320x320 PIL Image or Numpy array
     canon_arr = np.asarray(processed_canonical_image, dtype=np.float32) / 255.0
     canon_tensor = torch.from_numpy(canon_arr).permute(2, 0, 1).contiguous()
     canon_tensor = canon_tensor.unsqueeze(0).unsqueeze(0).to(device, dtype=torch.float16) # [1, 1, 3, 320, 320]
 
     canon_c2w = spherical_camera_pose(np.array([0.0]), np.array([0.0]), radius=4.0)
     canon_c2w = canon_c2w.float().flatten(-2) # [1, 16]
-
-    # Zero123++ hallucinated views use FOV 30, but our GT render uses FOV 60
     canon_K = FOV_to_intrinsics(60.0).unsqueeze(0).float().flatten(-2) # [1, 9]
 
     # Combine Extrinsics and Intrinsics exactly like InstantMesh does
@@ -358,7 +353,6 @@ def get_imesh_triplane(
     else:
         image_tensor = torch.cat([image_tensor, canon_tensor], dim=1) # Now [1, 7, 3, 320, 320]
         cameras = torch.cat([cameras, canon_cam], dim=1) # Now [1, 7, 16]
-
 
     print("Loading InstantMesh...")
     model_ckpt_path = hf_hub_download(
@@ -387,11 +381,13 @@ def get_imesh_triplane(
 
 
 from pytorch3d.loss import chamfer_distance
+from pytorch3d.structures import Pointclouds
 
 def compute_metric(p1, p2):
+    p1 = Pointclouds(torch.tensor(p1).unsqueeze(0))
+    p2 = Pointclouds(torch.tensor(p2).unsqueeze(0))
     cd_l1_raw, _ = chamfer_distance(p1, p2, norm=1, point_reduction='mean')
     cd_l1 = cd_l1_raw * 100  # Scaling by 10^2
-
     return cd_l1.item()
 
 def resample_pcd(pcd_np, n_points=16384):
@@ -542,5 +538,5 @@ if __name__ == "__main__":
     save_debug_ply(gt_np_resampled, os.path.join(renders_dir, "debug_2_ground_truth.ply"))
     save_debug_ply(partial_np_resampled, os.path.join(renders_dir, "debug_3_partial_sensor.ply"))
     
-    # cd_score = compute_metric(out_np_resampled, gt_np_resampled)
-    # print(f"Final Chamfer Distance (Scaled): {cd_score:.4f}")
+    cd_score = compute_metric(out_np_resampled, gt_np_resampled)
+    print(f"Final Chamfer Distance (Scaled): {cd_score:.4f}")
