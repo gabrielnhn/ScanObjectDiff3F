@@ -41,8 +41,11 @@ from PIL import Image
 import rembg
 from einops import rearrange
 from huggingface_hub import hf_hub_download
-from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler
-
+from diffusers import (
+    DiffusionPipeline,
+    EulerAncestralDiscreteScheduler,
+    EulerDiscreteScheduler
+)
 from unittest.mock import MagicMock
 sys.modules['nvdiffrast'] = MagicMock()
 sys.modules['nvdiffrast.torch'] = MagicMock()
@@ -226,12 +229,12 @@ def render_with_pytorch3d(device, pcd, best_elev, best_azim, H=RESOLUTION, W=RES
     )
     rasterizer = PointsRasterizer(cameras=cameras, raster_settings=raster_settings)
     
-    # renderer = PhongCircleRenderer(background_color=(0.0,0.0,0.0)).to(device)
+    renderer = PhongCircleRenderer(background_color=(0.0,0.0,0.0)).to(device)
     # renderer = PhongCircleRenderer(background_color=(1.0,1.0,1.0)).to(device)
-    renderer = NormalsRenderer(
-        # background_color=(0.5,0.5,0.5),
-        background_color=(0.0,0.0,0.0),
-        cameras=cameras).to(device)
+    # renderer = NormalsRenderer(
+    #     # background_color=(0.5,0.5,0.5),
+    #     background_color=(0.0,0.0,0.0),
+    #     cameras=cameras).to(device)
     
     fragments = rasterizer(pcd)
     images = renderer(fragments, pcd).cpu()
@@ -275,12 +278,15 @@ def get_mv_images(canonical_img):
     if CANON_ONLY:
         return None, processed_image
 
+    generator = torch.Generator(device=device).manual_seed(42)
+
     pipeline = DiffusionPipeline.from_pretrained(
         "sudo-ai/zero123plus-v1.2", 
         custom_pipeline="sudo-ai/zero123plus-pipeline",
         torch_dtype=torch.float16,
     )
-    pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(
+    # pipeline.scheduler = EulerAncestralDiscreteScheduler.from_config(
+    pipeline.scheduler = EulerDiscreteScheduler.from_config(
         pipeline.scheduler.config, timestep_spacing='trailing'
     )
 
@@ -294,7 +300,14 @@ def get_mv_images(canonical_img):
     pipeline = pipeline.to(device)
 
     print("   Generating 6 multi-views...")
-    z123_image = pipeline(processed_image, num_inference_steps=50).images[0]
+    z123_image = pipeline(
+        processed_image,
+        num_inference_steps=50, 
+        guidance_scale=7.5,
+        generator=generator,
+        prompt="high quality, clay material, clear image of an object",
+        negative_prompt="complex, detailed, chaotic, asymmetric, text, logo, weird, abstract",
+    ).images[0]
     z123_image.save(os.path.join(renders_dir, "MV.png"))
     
     #exit()
@@ -440,40 +453,39 @@ if __name__ == "__main__":
     object = "cow.ply"
     
     renders_dir = os.path.join(renders_dir, object.split(".")[0])
-    # renders_dir = "renders"
     if not os.path.isdir(renders_dir):
         os.mkdir(renders_dir)
     
     from pc_utils import load_ply_to_pytorch3d 
     print("LOADING PCD;")
     partial_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "indata", object),
-                                        normal_factor=7)
+                                        normal_factor=10)
+    
+    angles = {
+        "stanford-bunny.ply": (12.016324043273926, -129.30612182617188),
+        "cow.ply": (10.44897747039795,-2.3510241508483887),
+    }
     
     # print("FIND AZIM/ELEV;")
-    best_elev, best_azim = find_best_reference_pov_full(partial_pcd)
+    if object in angles:
+        best_elev, best_azim = angles[object]
+    else:
+        best_elev, best_azim = find_best_reference_pov_full(partial_pcd)
+    
     # best_elev = 12.016324043273926
     # best_azim = -129.30612182617188
 
     print("GET BEST RGB;")
     canonical_image = get_reference_image(partial_pcd, best_elev, best_azim)
     
-    # exit()
-    
     print("RUN ZERO123++;")
     mv_image, resized_canonical = get_mv_images(canonical_image)
     print("RUN INSTANTMESH FORWARD PASS;")
     out_points = get_imesh_triplane(mv_image, resized_canonical, best_elev, best_azim)
-    
-    # eval
-    gt_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "gtdata", object), normal_factor=0)
-    
-    # TODO
-    # rotate pcd using best elev and azim
-    # scale/match because of resolution changes
-    # extract np gt pointcloud to run compute_metric()
 
-    print("STARTING DETERMINISTIC ALIGNMENT;")
-    
+    print("done. aligning..")    
+    gt_pcd = load_ply_to_pytorch3d(os.path.join(dataset_path, "gtdata", object), normal_factor=0)
+
     gt_np = gt_pcd.points_list()[0].cpu().numpy()
     partial_np = partial_pcd.points_list()[0].cpu().numpy()
     out_np = out_points 
@@ -486,20 +498,10 @@ if __name__ == "__main__":
     gt_np_norm = gt_np_centered / gt_scale
     partial_np_norm = (partial_np - gt_centroid) / gt_scale 
     out_np_norm = normalize_pc(out_np)
-
-    # InstantMesh is Z-Up. PyTorch3D View is Y-Up. 
-    # We rotate 90 degrees around X to bring Z up to Y.
-    # Depending on the Zero123++ azimuth, you might need a 90-degree yaw.
     
-    # ==========================================================
-    # 2. THE CONSTANT AXIS CORRECTION & HANDEDNESS BRIDGE
-    # ==========================================================
-    
-    # 1. Flip Handedness (Right-Handed OpenGL -> Left-Handed PyTorch3D)
-    # This fixes the "mirror" effect. We flip the X axis.
     mirror_matrix = np.array([
-        [1,  0,  0], 
-        [ 0,  -1,  0],
+        [-1,  0,  0], 
+        [ 0,  1,  0],
         [ 0,  0,  1]
     ])
 
@@ -510,10 +512,7 @@ if __name__ == "__main__":
         [ 0,  1,  0]
     ])
     
-    # 3. The Azimuth Alignment (yaw_degrees)
-    # If the bunny's head was facing exactly 180 degrees away from the blue bunny's head,
-    # set this to 180. If it was facing 90 degrees away, set to 90 or -90.
-    yaw_degrees = 90  # <-- Tweak this only if it's facing sideways, NOT mirrored
+    yaw_degrees = 90
     yaw_rad = np.radians(yaw_degrees)
     yaw_matrix = np.array([
         [ np.cos(yaw_rad), 0, np.sin(yaw_rad)],
@@ -538,16 +537,10 @@ if __name__ == "__main__":
     partial_np_resampled = resample_pcd(partial_np_norm, n_points=16384)
     gt_np_resampled = resample_pcd(gt_np_norm, n_points=16384)
 
-    # Optional: Run a tiny ICP just for the final metric calculation to account 
-    # for the bounding box scale variance, but NOT for massive rotations.
-    # print("RUNNING MICRO-ICP (Scale/Translation correction only);")
-    # out_np_aligned = run_icp(out_np_resampled, partial_np_resampled)
-
     print("SAVING DEBUG POINT CLOUDS;")
     save_debug_ply(out_np_resampled, os.path.join(renders_dir, "debug_1_prediction_deterministic.ply"))
     save_debug_ply(gt_np_resampled, os.path.join(renders_dir, "debug_2_ground_truth.ply"))
     save_debug_ply(partial_np_resampled, os.path.join(renders_dir, "debug_3_partial_sensor.ply"))
     
-
     # cd_score = compute_metric(out_np_resampled, gt_np_resampled)
     # print(f"Final Chamfer Distance (Scaled): {cd_score:.4f}")

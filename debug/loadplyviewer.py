@@ -39,6 +39,7 @@ import os
 
 renders_dir = "./renders/horse/"
 renders_dir = "./renders/cow/"
+# renders_dir = "./renders/stanford-bunny/"
 path1 = os.path.join(renders_dir, "debug_1_prediction_deterministic.ply")
 path2 = os.path.join(renders_dir, "debug_2_ground_truth.ply")
 path3 = os.path.join(renders_dir, "debug_3_partial_sensor.ply")
